@@ -57,6 +57,7 @@ set -euo pipefail
 # Identify mmc sys device: /sys/block/mmcblkX/device
 sysdev="/sys/block/${target_dev}/device"
 [[ -d "$sysdev" ]] || exit 4
+sysdev=$(readlink "$sysdev")
 
 # Determine the device identifier expected by mmcblk driver unbind.
 # For mmcblk, the device identifier corresponds to the mmc card device under mmc host, e.g., mmcX:0001
