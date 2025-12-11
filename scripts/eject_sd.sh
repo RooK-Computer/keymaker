@@ -68,7 +68,7 @@ card_node=$(basename "$sysdev")
 unbind_path="/sys/bus/mmc/drivers/mmcblk/unbind"
 [[ -w "$unbind_path" ]] || exit 4
 
-echo "$card_node" | tee "$unbind_path"
+echo "$card_node" >> "$unbind_path"
 
 # Verify disappearance
 sleep 0.5
