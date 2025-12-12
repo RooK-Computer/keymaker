@@ -29,6 +29,9 @@ func (a *App) Start(ctx context.Context) error {
     fb := render.NewFBRenderer()
     if err := fb.Start(ctx); err != nil { return err }
     defer fb.Stop()
+    // Switch console to KD_GRAPHICS to suppress hardware cursor
+    _ = system.SetGraphicsMode()
+    defer system.RestoreTextMode()
     fb.SetScreen(render.RemoveCartridgeScreen{})
     // Start render loop so the framebuffer refreshes and covers any blinking cursor
     loopCtx, cancel := context.WithCancel(ctx)
