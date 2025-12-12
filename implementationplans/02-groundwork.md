@@ -316,6 +316,7 @@ Percent completion is optional and only shown if reliable size information is av
 
 * Minimize privileged surface area
 * Prefer wrapper scripts over direct binary execution
+* The wrapper scripts in the scripts subfolder are placed in /usr/bin and therefore available via the $PATH variable.
 * Use absolute paths only
 
 ### Sudoers
