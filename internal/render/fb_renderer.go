@@ -27,6 +27,7 @@ type FBRenderer struct {
     logo     image.Image
     running  atomic.Bool
     current  Screen
+    lastLogoRect image.Rectangle
 }
 
 func NewFBRenderer() *FBRenderer { return &FBRenderer{} }
@@ -43,7 +44,7 @@ func (r *FBRenderer) Start(ctx context.Context) error {
     // Load font from embedded bytes
     fnt, err := opentype.Parse(assets.FontTTF)
     if err != nil { return err }
-    face, err := opentype.NewFace(fnt, &opentype.FaceOptions{Size: 32, DPI: 96, Hinting: font.HintingFull})
+    face, err := opentype.NewFace(fnt, &opentype.FaceOptions{Size: 72, DPI: 96, Hinting: font.HintingFull})
     if err != nil { return err }
     r.fontFace = face
 
@@ -67,7 +68,7 @@ func (r *FBRenderer) SetScreen(s Screen) { r.current = s }
 
 // Redraw triggers a draw of the current screen.
 func (r *FBRenderer) RedrawWithState(snap state.State) {
-    if r.current == nil { return }
+    if !r.running.Load() || r.current == nil || r.fbDev == nil { return }
     // Provide a Drawer implementation and ask the screen to draw
     r.current.Draw(r, snap)
     _ = blitToFB(r.fbDev, r.canvas)
@@ -95,14 +96,17 @@ func (r *FBRenderer) FillBackground() {
 
 func (r *FBRenderer) DrawLogoCenteredTop() {
     if r.logo == nil { return }
-    maxW := int(float64(CanvasWidth) * 0.7)
+    // Limit logo to 25% of canvas width and center on screen
+    maxW := int(float64(CanvasWidth) * 0.25)
     scale := 1.0
     lw := r.logo.Bounds().Dx()
     lh := r.logo.Bounds().Dy()
     if lw > maxW { scale = float64(maxW) / float64(lw) }
     sw := int(float64(lw) * scale)
     sh := int(float64(lh) * scale)
-    dst := image.Rect((CanvasWidth-sw)/2, CanvasHeight/6, (CanvasWidth-sw)/2+sw, CanvasHeight/6+sh)
+    // Center vertically and horizontally
+    dst := image.Rect((CanvasWidth-sw)/2, (CanvasHeight-sh)/2- (sh/4), (CanvasWidth-sw)/2+sw, (CanvasHeight-sh)/2- (sh/4)+sh)
+    r.lastLogoRect = dst
     // Scale into a temporary RGBA and composite with alpha
     tmp := image.NewRGBA(dst)
     xdraw.NearestNeighbor.Scale(tmp, tmp.Bounds(), r.logo, r.logo.Bounds(), xdraw.Over, nil)
@@ -115,7 +119,7 @@ func (r *FBRenderer) DrawTextCentered(text string) {
     ascent := metrics.Ascent.Ceil()
     // Logo bottom + margin
     margin := 40
-    logoBottom := CanvasHeight/6 + int(float64(r.logo.Bounds().Dy())*0.7) // approximate when scaled
+    logoBottom := r.lastLogoRect.Max.Y
     baseline := logoBottom + margin + ascent
     drawTextCentered(r.canvas, text, baseline, Foreground, r.fontFace)
 }

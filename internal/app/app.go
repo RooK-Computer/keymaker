@@ -3,6 +3,7 @@ package app
 import (
     "context"
     "time"
+    "sync"
     "github.com/rook-computer/keymaker/internal/buttons"
     "github.com/rook-computer/keymaker/internal/flash"
     "github.com/rook-computer/keymaker/internal/render"
@@ -35,7 +36,12 @@ func (a *App) Start(ctx context.Context) error {
     fb.SetScreen(render.RemoveCartridgeScreen{})
     // Start render loop so the framebuffer refreshes and covers any blinking cursor
     loopCtx, cancel := context.WithCancel(ctx)
-    go fb.RunLoop(loopCtx, a.Store)
+    var wg sync.WaitGroup
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        fb.RunLoop(loopCtx, a.Store)
+    }()
 
     // Begin ejection process and wait with timeout retries
     // Use ShellRunner so commands run via sudo using PATH
@@ -55,13 +61,18 @@ func (a *App) Start(ctx context.Context) error {
                 return
             }
             // retry after short pause
-            time.Sleep(500 * time.Millisecond)
+            select {
+            case <-loopCtx.Done():
+                return
+            case <-time.After(500 * time.Millisecond):
+            }
         }
     }()
 
     // Wait for completion
     err := <-done
     cancel()
+    wg.Wait()
     return err
 }
 
