@@ -15,6 +15,7 @@ import (
     "golang.org/x/image/font"
     "golang.org/x/image/font/opentype"
     "golang.org/x/image/math/fixed"
+    xdraw "golang.org/x/image/draw"
 )
 
 // FBRenderer renders to the Linux framebuffer using an offscreen logical canvas.
@@ -86,7 +87,10 @@ func (r *FBRenderer) DrawLogoCenteredTop() {
     sw := int(float64(lw) * scale)
     sh := int(float64(lh) * scale)
     dst := image.Rect((CanvasWidth-sw)/2, CanvasHeight/6, (CanvasWidth-sw)/2+sw, CanvasHeight/6+sh)
-    nnScale(r.canvas, dst, r.logo)
+    // Scale into a temporary RGBA and composite with alpha
+    tmp := image.NewRGBA(dst)
+    xdraw.NearestNeighbor.Scale(tmp, tmp.Bounds(), r.logo, r.logo.Bounds(), xdraw.Over, nil)
+    draw.Draw(r.canvas, dst, tmp, tmp.Bounds().Min, draw.Over)
 }
 
 func (r *FBRenderer) DrawTextCentered(text string) {

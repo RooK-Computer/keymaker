@@ -34,8 +34,8 @@ func (a *App) Start(ctx context.Context) error {
     fb.Redraw()
 
     // Begin ejection process and wait with timeout retries
-    // Use a minimal runner for now (system.NoopRunner can be replaced later)
-    runner := system.NoopRunner{}
+    // Use ShellRunner so commands run via sudo using PATH
+    runner := system.ShellRunner{}
     if err := system.StartEject(ctx, runner); err != nil {
         // Keep screen displayed; fall through to wait retries
     }
