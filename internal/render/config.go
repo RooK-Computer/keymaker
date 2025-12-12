@@ -9,6 +9,6 @@ var (
     Background = color.RGBA{R: 0xFF, G: 0xDC, B: 0x00, A: 0xFF} // #ffdc00
 
     // Logical canvas size; scaled to framebuffer.
-    CanvasWidth  = 320
-    CanvasHeight = 240
+    CanvasWidth  = 640
+    CanvasHeight = 480
 )

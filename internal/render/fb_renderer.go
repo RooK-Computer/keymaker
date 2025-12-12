@@ -8,6 +8,7 @@ import (
     "image/draw"
     "image/png"
     "sync/atomic"
+    "time"
 
     fb "github.com/gonutz/framebuffer"
     "github.com/rook-computer/keymaker/internal/assets"
@@ -42,7 +43,7 @@ func (r *FBRenderer) Start(ctx context.Context) error {
     // Load font from embedded bytes
     fnt, err := opentype.Parse(assets.FontTTF)
     if err != nil { return err }
-    face, err := opentype.NewFace(fnt, &opentype.FaceOptions{Size: 18, DPI: 96, Hinting: font.HintingFull})
+    face, err := opentype.NewFace(fnt, &opentype.FaceOptions{Size: 32, DPI: 96, Hinting: font.HintingFull})
     if err != nil { return err }
     r.fontFace = face
 
@@ -65,11 +66,26 @@ func (r *FBRenderer) Stop() error {
 func (r *FBRenderer) SetScreen(s Screen) { r.current = s }
 
 // Redraw triggers a draw of the current screen.
-func (r *FBRenderer) Redraw() {
+func (r *FBRenderer) RedrawWithState(snap state.State) {
     if r.current == nil { return }
     // Provide a Drawer implementation and ask the screen to draw
-    r.current.Draw(r, state.State{})
+    r.current.Draw(r, snap)
     _ = blitToFB(r.fbDev, r.canvas)
+}
+
+// RunLoop continuously redraws at ~30 FPS until the context is done.
+func (r *FBRenderer) RunLoop(ctx context.Context, store *state.Store) {
+    ticker := time.NewTicker(time.Second / 30)
+    defer ticker.Stop()
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case <-ticker.C:
+            snap := store.Snapshot()
+            r.RedrawWithState(snap)
+        }
+    }
 }
 
 // Drawer primitives
@@ -94,7 +110,14 @@ func (r *FBRenderer) DrawLogoCenteredTop() {
 }
 
 func (r *FBRenderer) DrawTextCentered(text string) {
-    drawTextCentered(r.canvas, text, CanvasHeight/6+80, Foreground, r.fontFace)
+    // Position text below logo using metrics
+    metrics := r.fontFace.Metrics()
+    ascent := metrics.Ascent.Ceil()
+    // Logo bottom + margin
+    margin := 40
+    logoBottom := CanvasHeight/6 + int(float64(r.logo.Bounds().Dy())*0.7) // approximate when scaled
+    baseline := logoBottom + margin + ascent
+    drawTextCentered(r.canvas, text, baseline, Foreground, r.fontFace)
 }
 
 // Helper: nearest-neighbor scale of src into dst rectangle on canvas.

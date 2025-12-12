@@ -2,7 +2,6 @@ package app
 
 import (
     "context"
-    "errors"
     "time"
     "github.com/rook-computer/keymaker/internal/buttons"
     "github.com/rook-computer/keymaker/internal/flash"
@@ -31,7 +30,9 @@ func (a *App) Start(ctx context.Context) error {
     if err := fb.Start(ctx); err != nil { return err }
     defer fb.Stop()
     fb.SetScreen(render.RemoveCartridgeScreen{})
-    fb.Redraw()
+    // Start render loop so the framebuffer refreshes and covers any blinking cursor
+    loopCtx, cancel := context.WithCancel(ctx)
+    go fb.RunLoop(loopCtx, a.Store)
 
     // Begin ejection process and wait with timeout retries
     // Use ShellRunner so commands run via sudo using PATH
@@ -40,21 +41,25 @@ func (a *App) Start(ctx context.Context) error {
         // Keep screen displayed; fall through to wait retries
     }
 
-    const timeoutSec = 60
-    for {
-        err := system.WaitForEject(ctx, runner, timeoutSec)
-        if err == nil {
-            // Ejected; exit program
-            return nil
+    // Run eject sequence in a separate goroutine
+    done := make(chan error, 1)
+    go func() {
+        _ = system.StartEject(ctx, runner)
+        const timeoutSec = 60
+        for {
+            if err := system.WaitForEject(ctx, runner, timeoutSec); err == nil {
+                done <- nil
+                return
+            }
+            // retry after short pause
+            time.Sleep(500 * time.Millisecond)
         }
-        // Detect timeout via error text; as we don't have exit status details from Runner yet,
-        // retry unconditionally after a short pause.
-        if errors.Is(err, context.DeadlineExceeded) {
-            // If context timeout, break
-            return err
-        }
-        time.Sleep(500 * time.Millisecond)
-    }
+    }()
+
+    // Wait for completion
+    err := <-done
+    cancel()
+    return err
 }
 
 func (a *App) Stop() error {
