@@ -3,7 +3,6 @@ package system
 import (
     "context"
     "fmt"
-    "path/filepath"
 )
 
 const (
