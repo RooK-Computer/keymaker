@@ -1,11 +1,11 @@
 BIN_DIR := bin
 BINARY := $(BIN_DIR)/keymaker
 
-.PHONY: all build clean run test-build
+.PHONY: all build clean run test-build deps
 
 all: build
 
-build:
+build: deps
 	@mkdir -p $(BIN_DIR)
 	@echo "Building $(BINARY)"
 	@go build -o $(BINARY) ./
@@ -20,3 +20,8 @@ clean:
 test-build: build
 	@echo "Running $(BINARY)"
 	@$(BINARY)
+
+# Fetch and tidy Go module dependencies
+deps:
+	@echo "Fetching Go module dependencies"
+	@go mod tidy
