@@ -37,9 +37,10 @@ func (NoopWifiConfigurator) Configure(ctx context.Context, ssid, password string
 
 // ShellRunner executes commands via sudo and uses PATH to resolve scripts.
 // It returns stdout, stderr, and an error if the command exits non-zero.
-type ShellRunner struct{}
+type sysLogger interface { Infof(string, string, ...interface{}); Errorf(string, string, ...interface{}) }
+type ShellRunner struct{ Logger sysLogger }
 
-func (ShellRunner) Run(ctx context.Context, cmd string, args ...string) (string, string, error) {
+func (sr ShellRunner) Run(ctx context.Context, cmd string, args ...string) (string, string, error) {
     // Prepend cmd to args, execute through sudo
     fullArgs := append([]string{cmd}, args...)
     c := exec.CommandContext(ctx, "sudo", fullArgs...)
@@ -50,9 +51,17 @@ func (ShellRunner) Run(ctx context.Context, cmd string, args ...string) (string,
     if err != nil {
         // Include exit status if available
         if exitErr, ok := err.(*exec.ExitError); ok {
+            if sr.Logger != nil { sr.Logger.Errorf("system", "cmd failed: sudo %s %v, exit=%d, stderr=%s", cmd, args, exitErr.ExitCode(), truncate(errBuf.String(), 256)) }
             return outBuf.String(), errBuf.String(), fmt.Errorf("exit %d: %w", exitErr.ExitCode(), err)
         }
+        if sr.Logger != nil { sr.Logger.Errorf("system", "cmd failed: sudo %s %v, err=%v", cmd, args, err) }
         return outBuf.String(), errBuf.String(), err
     }
+    if sr.Logger != nil { sr.Logger.Infof("system", "cmd ok: sudo %s %v, stdout=%s", cmd, args, truncate(outBuf.String(), 256)) }
     return outBuf.String(), errBuf.String(), nil
+}
+
+func truncate(s string, n int) string {
+    if len(s) <= n { return s }
+    return s[:n] + "..."
 }

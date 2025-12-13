@@ -31,7 +31,7 @@ func (RemoveCartridgeScreen) Draw(r Drawer, s state.State) {
     r.FillBackground()
     // Draw logo and message
     r.DrawLogoCenteredTop()
-    r.DrawTextCentered("please remove the cartridge now")
+    r.DrawTextCentered("please remove cartridge")
 }
 
 type InsertCartridgeScreen struct{}

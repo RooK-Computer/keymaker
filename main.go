@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/rook-computer/keymaker/internal/app"
@@ -15,6 +17,23 @@ import (
 
 func main() {
 	fmt.Println("Keymaker starting (skeleton)")
+
+	// Flags
+	debug := flag.Bool("debug", false, "enable debug logging to ./keymaker-debug.log")
+	noLogo := flag.Bool("no-logo", false, "disable logo rendering")
+	flag.Parse()
+
+	// Local file logger when debug enabled
+	var logger app.Logger = app.NoopLogger{}
+	if *debug {
+		f, err := os.OpenFile("./keymaker-debug.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err == nil {
+			logger = app.NewFileLogger(f)
+			logger.Infof("main", "debug logging enabled")
+		} else {
+			fmt.Println("debug log open error:", err)
+		}
+	}
 
 	// Context for lifecycle
 	ctx, cancel := context.WithCancel(context.Background())
@@ -31,6 +50,9 @@ func main() {
 
 	// App construction
 	a := app.New(store, renderer, server, flasher, btns)
+	a.Logger = logger
+	a.NoLogo = *noLogo
+	a.Debug = *debug
 
 	if err := a.Start(ctx); err != nil {
 		fmt.Println("app start error:", err)

@@ -12,9 +12,8 @@ const (
 
 // StartEject calls the eject script via sudo to initiate ejection.
 func StartEject(ctx context.Context, r Runner) error {
-    cmd := "sudo"
-    scriptPath := ejectScript
-    _, stderr, err := r.Run(ctx, cmd, scriptPath)
+    cmd := ejectScript
+    _, stderr, err := r.Run(ctx, cmd)
     if err != nil {
         return fmt.Errorf("eject failed: %v: %s", err, stderr)
     }
@@ -24,9 +23,8 @@ func StartEject(ctx context.Context, r Runner) error {
 // WaitForEject calls the wait script via sudo with a timeout in seconds.
 // Returns nil if ejected, or error if timeout or invocation error.
 func WaitForEject(ctx context.Context, r Runner, timeoutSeconds int) error {
-    cmd := "sudo"
-    scriptPath := waitForEjectScript
-    _, stderr, err := r.Run(ctx, cmd, scriptPath, fmt.Sprintf("%d", timeoutSeconds))
+    cmd := waitForEjectScript
+    _, stderr, err := r.Run(ctx, cmd, fmt.Sprintf("%d", timeoutSeconds))
     if err != nil {
         return fmt.Errorf("wait for eject failed: %v: %s", err, stderr)
     }

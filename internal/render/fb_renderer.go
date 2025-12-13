@@ -11,10 +11,12 @@ import (
     "time"
 
     fb "github.com/gonutz/framebuffer"
+    "github.com/golang/freetype/truetype"
     "github.com/rook-computer/keymaker/internal/assets"
     "github.com/rook-computer/keymaker/internal/state"
     "golang.org/x/image/font"
     "golang.org/x/image/font/opentype"
+    "golang.org/x/image/font/basicfont"
     "golang.org/x/image/math/fixed"
     xdraw "golang.org/x/image/draw"
 )
@@ -24,10 +26,14 @@ type FBRenderer struct {
     fbDev   *fb.Device
     canvas  *image.RGBA
     fontFace font.Face
+    ttFont  *truetype.Font
     logo     image.Image
     running  atomic.Bool
     current  Screen
     lastLogoRect image.Rectangle
+    Logger   interface{ Infof(string, string, ...interface{}); Errorf(string, string, ...interface{}) }
+    NoLogo   bool
+    Debug    bool
 }
 
 func NewFBRenderer() *FBRenderer { return &FBRenderer{} }
@@ -37,21 +43,44 @@ func (r *FBRenderer) Start(ctx context.Context) error {
     dev, err := fb.Open("/dev/fb0")
     if err != nil { return err }
     r.fbDev = dev
+    if r.Logger != nil { b := dev.Bounds(); r.Logger.Infof("fb", "framebuffer open, bounds=%dx%d", b.Dx(), b.Dy()) }
 
     // Prepare logical canvas
     r.canvas = image.NewRGBA(image.Rect(0, 0, CanvasWidth, CanvasHeight))
 
     // Load font from embedded bytes
     fnt, err := opentype.Parse(assets.FontTTF)
-    if err != nil { return err }
-    face, err := opentype.NewFace(fnt, &opentype.FaceOptions{Size: 72, DPI: 96, Hinting: font.HintingFull})
-    if err != nil { return err }
-    r.fontFace = face
+    if err != nil {
+        r.fontFace = basicfont.Face7x13
+        if r.Logger != nil { r.Logger.Errorf("fb", "font parse failed, using basicfont: %v", err) }
+    } else {
+        face, ferr := opentype.NewFace(fnt, &opentype.FaceOptions{Size: 48, DPI: 96, Hinting: font.HintingFull})
+        if ferr != nil {
+            r.fontFace = basicfont.Face7x13
+            if r.Logger != nil { r.Logger.Errorf("fb", "font face create failed, using basicfont: %v", ferr) }
+        } else {
+            r.fontFace = face
+            if r.Logger != nil { r.Logger.Infof("fb", "loaded OTF font at 48pt") }
+        }
+    }
+    // Also try parsing truetype for freetype renderer
+    if tt, terr := truetype.Parse(assets.FontTTF); terr != nil {
+        if r.Logger != nil { r.Logger.Errorf("fb", "truetype parse failed: %v", terr) }
+    } else {
+        r.ttFont = tt
+        if r.Logger != nil { r.Logger.Infof("fb", "truetype font parsed for freetype") }
+    }
 
     // Decode logo
-    img, err := png.Decode(bytes.NewReader(assets.LogoPNG))
-    if err != nil { return err }
-    r.logo = img
+    if !r.NoLogo {
+        img, lerr := png.Decode(bytes.NewReader(assets.LogoPNG))
+        if lerr != nil {
+            if r.Logger != nil { r.Logger.Errorf("fb", "logo load failed: %v", lerr) }
+        } else {
+            r.logo = img
+            if r.Logger != nil { r.Logger.Infof("fb", "logo loaded") }
+        }
+    }
 
     r.running.Store(true)
     return nil
@@ -69,15 +98,19 @@ func (r *FBRenderer) SetScreen(s Screen) { r.current = s }
 // Redraw triggers a draw of the current screen.
 func (r *FBRenderer) RedrawWithState(snap state.State) {
     if !r.running.Load() || r.current == nil || r.fbDev == nil { return }
+    // Clear canvas to background each frame for consistent rendering
+    r.FillBackground()
     // Provide a Drawer implementation and ask the screen to draw
     r.current.Draw(r, snap)
     _ = blitToFB(r.fbDev, r.canvas)
+    if r.Logger != nil { r.Logger.Infof("fb", "redraw done, phase=%d", snap.Phase) }
 }
 
 // RunLoop continuously redraws at ~30 FPS until the context is done.
 func (r *FBRenderer) RunLoop(ctx context.Context, store *state.Store) {
     ticker := time.NewTicker(time.Second / 30)
     defer ticker.Stop()
+    lastLog := time.Now()
     for {
         select {
         case <-ctx.Done():
@@ -85,6 +118,10 @@ func (r *FBRenderer) RunLoop(ctx context.Context, store *state.Store) {
         case <-ticker.C:
             snap := store.Snapshot()
             r.RedrawWithState(snap)
+            if r.Logger != nil && time.Since(lastLog) > time.Second {
+                r.Logger.Infof("fb", "heartbeat frame, phase=%d", snap.Phase)
+                lastLog = time.Now()
+            }
         }
     }
 }
@@ -114,14 +151,37 @@ func (r *FBRenderer) DrawLogoCenteredTop() {
 }
 
 func (r *FBRenderer) DrawTextCentered(text string) {
+    // Ensure we have a font face
+    if r.fontFace == nil {
+        r.fontFace = basicfont.Face7x13
+        if r.Logger != nil { r.Logger.Errorf("fb", "fontFace nil at draw, defaulting to basicfont") }
+    }
     // Position text below logo using metrics
     metrics := r.fontFace.Metrics()
     ascent := metrics.Ascent.Ceil()
-    // Logo bottom + margin
     margin := 40
-    logoBottom := r.lastLogoRect.Max.Y
-    baseline := logoBottom + margin + ascent
-    drawTextCentered(r.canvas, text, baseline, Foreground, r.fontFace)
+    baseline := 0
+    // If logoRect is not set or off-screen, use vertical center
+    if r.lastLogoRect.Empty() || r.lastLogoRect.Max.Y <= 0 {
+        baseline = CanvasHeight/2 + ascent/2
+    } else {
+        logoBottom := r.lastLogoRect.Max.Y
+        baseline = logoBottom + margin + ascent
+    }
+    // Measure width using font.Drawer to center horizontally
+    // Use Foreground color with explicit alpha channel
+    textColor := color.RGBA{R: Foreground.R, G: Foreground.G, B: Foreground.B, A: 255}
+    d := &font.Drawer{
+        Dst:  r.canvas,
+        Src:  image.NewUniform(textColor),
+        Face: r.fontFace,
+    }
+    w := d.MeasureString(text).Ceil()
+    x := (CanvasWidth - w) / 2
+    
+    // Draw text directly onto canvas
+    d.Dot = fixed.Point26_6{X: fixed.Int26_6(x << 6), Y: fixed.Int26_6(baseline << 6)}
+    d.DrawString(text)
 }
 
 // Helper: nearest-neighbor scale of src into dst rectangle on canvas.
@@ -167,6 +227,21 @@ func drawTextCentered(img *image.RGBA, text string, baselineY int, fg color.Colo
     }
     w := d.MeasureString(text).Ceil()
     x := (CanvasWidth - w) / 2
+    d.Dot = fixed.P(x<<6, baselineY<<6)
+    d.DrawString(text)
+}
+func drawTextWithOffset(img *image.RGBA, text string, baselineY int, fg color.Color, face font.Face, offX, offY int) {
+    // draw shadow
+    shadow := color.RGBA{R: 0, G: 0, B: 0, A: 0xFF}
+    drawTextAt(img, text, baselineY+offY, shadow, face, offX)
+    // draw main
+    drawTextAt(img, text, baselineY, fg, face, 0)
+}
+func drawTextAt(img *image.RGBA, text string, baselineY int, fg color.Color, face font.Face, xOffset int) {
+    d := &font.Drawer{Dst: img, Src: &image.Uniform{C: fg}, Face: face}
+    w := d.MeasureString(text).Ceil()
+    x := (CanvasWidth - w) / 2
+    x += xOffset
     d.Dot = fixed.P(x<<6, baselineY<<6)
     d.DrawString(text)
 }
