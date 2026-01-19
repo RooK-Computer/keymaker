@@ -42,8 +42,8 @@ func main() {
 	// Shared state store
 	store := state.NewStore()
 
-	// No-op subsystem stubs
-	renderer := &render.NoopRenderer{}
+	// Subsystem stubs (renderer is real to show the local UI)
+	renderer := render.NewFBRenderer()
 	server := &web.NoopServer{}
 	flasher := &flash.NoopFlasher{}
 	btns := buttons.NewNoopButtons()

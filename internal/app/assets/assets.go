@@ -1,9 +1,6 @@
 package assets
 
-import _ "embed"
+import coreassets "github.com/rook-computer/keymaker/internal/assets"
 
-//go:embed ../assets/logo.png
-var LogoPNG []byte
-
-//go:embed ../assets/BerkeleyMonoTrial-Regular.otf
-var FontTTF []byte
+var LogoPNG = coreassets.LogoPNG
+var FontTTF = coreassets.FontTTF
