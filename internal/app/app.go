@@ -33,63 +33,63 @@ type App struct {
 	exitCh   chan error
 }
 
-func New(store *state.Store, r render.Renderer, w web.Server, f flash.Flasher, b buttons.Buttons) *App {
-	return &App{Store: store, Render: r, Web: w, Flash: f, Buttons: b, Logger: NoopLogger{}, exitCh: make(chan error, 1)}
+func New(store *state.Store, renderer render.Renderer, webServer web.Server, flasher flash.Flasher, buttonDriver buttons.Buttons) *App {
+	return &App{Store: store, Render: renderer, Web: webServer, Flash: flasher, Buttons: buttonDriver, Logger: NoopLogger{}, exitCh: make(chan error, 1)}
 }
 
 // Exit requests the app to stop running.
 // Any screen can call this to terminate the process via the generic codepath.
-func (a *App) Exit(err error) {
-	if a.exitCh == nil {
+func (app *App) Exit(err error) {
+	if app.exitCh == nil {
 		return
 	}
-	if !a.exitOnce.CompareAndSwap(false, true) {
+	if !app.exitOnce.CompareAndSwap(false, true) {
 		return
 	}
 	select {
-	case a.exitCh <- err:
+	case app.exitCh <- err:
 	default:
 	}
 }
 
-func (a *App) Start(ctx context.Context) error {
-	if a.exitCh == nil {
-		a.exitCh = make(chan error, 1)
+func (app *App) Start(ctx context.Context) error {
+	if app.exitCh == nil {
+		app.exitCh = make(chan error, 1)
 	}
-	a.exitOnce.Store(false)
+	app.exitOnce.Store(false)
 
-	a.Store.SetPhase(state.READY)
+	app.Store.SetPhase(state.READY)
 	// Initialize renderer and draw first screen
-	if a.Render == nil {
-		a.Render = render.NewFBRenderer()
+	if app.Render == nil {
+		app.Render = render.NewFBRenderer()
 	}
-	if fb, ok := a.Render.(*render.FBRenderer); ok {
-		fb.Logger = a.Logger
-		fb.NoLogo = a.NoLogo
-		fb.Debug = a.Debug
+	if fb, ok := app.Render.(*render.FBRenderer); ok {
+		fb.Logger = app.Logger
+		fb.NoLogo = app.NoLogo
+		fb.Debug = app.Debug
 	}
-	if err := a.Render.Start(ctx); err != nil {
-		a.Logger.Errorf("app", "renderer start error: %v", err)
+	if err := app.Render.Start(ctx); err != nil {
+		app.Logger.Errorf("app", "renderer start error: %v", err)
 		return err
 	}
-	defer a.Render.Stop()
+	defer app.Render.Stop()
 
 	// Switch console to KD_GRAPHICS to suppress hardware cursor
-	if err := system.SetGraphicsModeWithLog(a.Logger); err != nil {
-		a.Logger.Errorf("tty", "set graphics mode failed: %v", err)
+	if err := system.SetGraphicsModeWithLog(app.Logger); err != nil {
+		app.Logger.Errorf("tty", "set graphics mode failed: %v", err)
 	}
-	_ = system.HideCursorWithLog(a.Logger)
-	defer func() { _ = system.ShowCursorWithLog(a.Logger); _ = system.RestoreTextModeWithLog(a.Logger) }()
+	_ = system.HideCursorWithLog(app.Logger)
+	defer func() { _ = system.ShowCursorWithLog(app.Logger); _ = system.RestoreTextModeWithLog(app.Logger) }()
 
 	// Show the ejection screen; it owns the eject/wait logic.
-	runner := system.ShellRunner{Logger: a.Logger}
-	ejectScreen := screens.NewRemoveCartridgeScreen(runner, a.Logger, a)
-	if err := a.setScreen(ctx, ejectScreen); err != nil {
+	runner := system.ShellRunner{Logger: app.Logger}
+	ejectScreen := screens.NewRemoveCartridgeScreen(runner, app.Logger, app)
+	if err := app.setScreen(ctx, ejectScreen); err != nil {
 		return err
 	}
 
 	// Force immediate first redraw to ensure text shows without waiting for loop.
-	a.Render.RedrawWithState(a.Store.Snapshot())
+	app.Render.RedrawWithState(app.Store.Snapshot())
 
 	// Start render loop so the framebuffer refreshes and covers any blinking cursor.
 	loopCtx, cancel := context.WithCancel(ctx)
@@ -97,7 +97,7 @@ func (a *App) Start(ctx context.Context) error {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		a.Render.RunLoop(loopCtx, a.Store)
+		app.Render.RunLoop(loopCtx, app.Store)
 	}()
 
 	// Wait for completion (requested by a screen), then exit.
@@ -105,23 +105,23 @@ func (a *App) Start(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		err = ctx.Err()
-	case err = <-a.exitCh:
+	case err = <-app.exitCh:
 	}
 	cancel()
 	wg.Wait()
 	return err
 }
 
-func (a *App) setScreen(ctx context.Context, s render.Screen) error {
-	if a.currentScreen != nil {
-		_ = a.currentScreen.Stop()
+func (app *App) setScreen(ctx context.Context, screen render.Screen) error {
+	if app.currentScreen != nil {
+		_ = app.currentScreen.Stop()
 	}
-	a.currentScreen = s
-	a.Render.SetScreen(s)
-	return s.Start(ctx)
+	app.currentScreen = screen
+	app.Render.SetScreen(screen)
+	return screen.Start(ctx)
 }
 
-func (a *App) Stop() error {
+func (app *App) Stop() error {
 	// Stop subsystems in the future; for now no-op
 	return nil
 }
@@ -148,7 +148,7 @@ func (l FileLogger) Errorf(component string, format string, args ...interface{})
 }
 
 func writeLog(w io.Writer, level, component, format string, args ...interface{}) {
-	ts := time.Now().Format(time.RFC3339)
+	timestamp := time.Now().Format(time.RFC3339)
 	msg := fmt.Sprintf(format, args...)
-	_, _ = io.WriteString(w, ts+" ["+level+"] "+component+": "+msg+"\n")
+	_, _ = io.WriteString(w, timestamp+" ["+level+"] "+component+": "+msg+"\n")
 }

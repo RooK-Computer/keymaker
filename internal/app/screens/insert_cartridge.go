@@ -12,8 +12,8 @@ type InsertCartridgeScreen struct{}
 func (InsertCartridgeScreen) Start(ctx context.Context) error { return nil }
 func (InsertCartridgeScreen) Stop() error                     { return nil }
 
-func (InsertCartridgeScreen) Draw(r render.Drawer, st state.State) {
-	r.FillBackground()
-	r.DrawLogoCenteredTop()
-	r.DrawTextCentered("please insert cartridge")
+func (InsertCartridgeScreen) Draw(drawer render.Drawer, currentState state.State) {
+	drawer.FillBackground()
+	drawer.DrawLogoCenteredTop()
+	drawer.DrawTextCentered("please insert cartridge")
 }

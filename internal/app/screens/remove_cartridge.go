@@ -44,44 +44,44 @@ func NewRemoveCartridgeScreen(runner system.Runner, logger Logger, exiter AppExi
 	}
 }
 
-func (s *RemoveCartridgeScreen) Start(ctx context.Context) error {
-	if s.Runner == nil {
+func (screen *RemoveCartridgeScreen) Start(ctx context.Context) error {
+	if screen.Runner == nil {
 		return errors.New("no system runner configured")
 	}
-	if s.Exiter == nil {
+	if screen.Exiter == nil {
 		return errors.New("no app exiter configured")
 	}
 
 	screenCtx, cancel := context.WithCancel(ctx)
-	s.cancel = cancel
+	screen.cancel = cancel
 
 	go func() {
 		// Enable lifeline before ejection (best-effort).
-		if err := system.LifelineOn(screenCtx, s.Runner); err != nil {
-			if s.Logger != nil {
-				s.Logger.Errorf("system", "lifeline on failed: %v", err)
+		if err := system.LifelineOn(screenCtx, screen.Runner); err != nil {
+			if screen.Logger != nil {
+				screen.Logger.Errorf("system", "lifeline on failed: %v", err)
 			}
 		}
 
-		if err := system.StartEject(screenCtx, s.Runner); err != nil {
-			if s.Logger != nil {
-				s.Logger.Errorf("system", "start eject failed: %v", err)
+		if err := system.StartEject(screenCtx, screen.Runner); err != nil {
+			if screen.Logger != nil {
+				screen.Logger.Errorf("system", "start eject failed: %v", err)
 			}
 			// Keep going: the wait loop will still retry and may succeed.
 		}
 
 		for {
-			if err := system.WaitForEject(screenCtx, s.Runner, s.TimeoutSeconds); err == nil {
-				s.Exiter.Exit(nil)
+			if err := system.WaitForEject(screenCtx, screen.Runner, screen.TimeoutSeconds); err == nil {
+				screen.Exiter.Exit(nil)
 				return
 			}
 
 			select {
 			case <-screenCtx.Done():
 				return
-			case <-time.After(s.RetryDelay):
-				if s.Logger != nil {
-					s.Logger.Infof("app", "waiting for eject...")
+			case <-time.After(screen.RetryDelay):
+				if screen.Logger != nil {
+					screen.Logger.Infof("app", "waiting for eject...")
 				}
 			}
 		}
@@ -90,15 +90,15 @@ func (s *RemoveCartridgeScreen) Start(ctx context.Context) error {
 	return nil
 }
 
-func (s *RemoveCartridgeScreen) Stop() error {
-	if s.cancel != nil {
-		s.cancel()
+func (screen *RemoveCartridgeScreen) Stop() error {
+	if screen.cancel != nil {
+		screen.cancel()
 	}
 	return nil
 }
 
-func (s *RemoveCartridgeScreen) Draw(r render.Drawer, st state.State) {
-	r.FillBackground()
-	r.DrawLogoCenteredTop()
-	r.DrawTextCentered("please remove cartridge")
+func (screen *RemoveCartridgeScreen) Draw(drawer render.Drawer, currentState state.State) {
+	drawer.FillBackground()
+	drawer.DrawLogoCenteredTop()
+	drawer.DrawTextCentered("please remove cartridge")
 }

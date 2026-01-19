@@ -49,8 +49,8 @@ func (r *FBRenderer) Start(ctx context.Context) error {
 	}
 	r.fbDev = dev
 	if r.Logger != nil {
-		b := dev.Bounds()
-		r.Logger.Infof("fb", "framebuffer open, bounds=%dx%d", b.Dx(), b.Dy())
+		bounds := dev.Bounds()
+		r.Logger.Infof("fb", "framebuffer open, bounds=%dx%d", bounds.Dx(), bounds.Dy())
 	}
 
 	// Prepare logical canvas
@@ -117,7 +117,7 @@ func (r *FBRenderer) Stop() error {
 }
 
 // SetScreen sets the current logical screen to be drawn.
-func (r *FBRenderer) SetScreen(s Screen) { r.current = s }
+func (r *FBRenderer) SetScreen(screen Screen) { r.current = screen }
 
 // Redraw triggers a draw of the current screen.
 func (r *FBRenderer) RedrawWithState(snap state.State) {
@@ -164,22 +164,22 @@ func (r *FBRenderer) DrawLogoCenteredTop() {
 		return
 	}
 	// Limit logo to 25% of canvas width and center on screen
-	maxW := int(float64(CanvasWidth) * 0.25)
+	maxLogoWidth := int(float64(CanvasWidth) * 0.25)
 	scale := 1.0
-	lw := r.logo.Bounds().Dx()
-	lh := r.logo.Bounds().Dy()
-	if lw > maxW {
-		scale = float64(maxW) / float64(lw)
+	logoWidth := r.logo.Bounds().Dx()
+	logoHeight := r.logo.Bounds().Dy()
+	if logoWidth > maxLogoWidth {
+		scale = float64(maxLogoWidth) / float64(logoWidth)
 	}
-	sw := int(float64(lw) * scale)
-	sh := int(float64(lh) * scale)
+	scaledWidth := int(float64(logoWidth) * scale)
+	scaledHeight := int(float64(logoHeight) * scale)
 	// Center vertically and horizontally
-	dst := image.Rect((CanvasWidth-sw)/2, (CanvasHeight-sh)/2-(sh/4), (CanvasWidth-sw)/2+sw, (CanvasHeight-sh)/2-(sh/4)+sh)
-	r.lastLogoRect = dst
+	destinationRect := image.Rect((CanvasWidth-scaledWidth)/2, (CanvasHeight-scaledHeight)/2-(scaledHeight/4), (CanvasWidth-scaledWidth)/2+scaledWidth, (CanvasHeight-scaledHeight)/2-(scaledHeight/4)+scaledHeight)
+	r.lastLogoRect = destinationRect
 	// Scale into a temporary RGBA and composite with alpha
-	tmp := image.NewRGBA(dst)
-	xdraw.NearestNeighbor.Scale(tmp, tmp.Bounds(), r.logo, r.logo.Bounds(), xdraw.Over, nil)
-	draw.Draw(r.canvas, dst, tmp, tmp.Bounds().Min, draw.Over)
+	temp := image.NewRGBA(destinationRect)
+	xdraw.NearestNeighbor.Scale(temp, temp.Bounds(), r.logo, r.logo.Bounds(), xdraw.Over, nil)
+	draw.Draw(r.canvas, destinationRect, temp, temp.Bounds().Min, draw.Over)
 }
 
 func (r *FBRenderer) DrawTextCentered(text string) {
@@ -205,31 +205,31 @@ func (r *FBRenderer) DrawTextCentered(text string) {
 	// Measure width using font.Drawer to center horizontally
 	// Use Foreground color with explicit alpha channel
 	textColor := color.RGBA{R: Foreground.R, G: Foreground.G, B: Foreground.B, A: 255}
-	d := &font.Drawer{
+	drawer := &font.Drawer{
 		Dst:  r.canvas,
 		Src:  image.NewUniform(textColor),
 		Face: r.fontFace,
 	}
-	w := d.MeasureString(text).Ceil()
-	x := (CanvasWidth - w) / 2
+	textWidth := drawer.MeasureString(text).Ceil()
+	xPos := (CanvasWidth - textWidth) / 2
 
 	// Draw text directly onto canvas
-	d.Dot = fixed.Point26_6{X: fixed.Int26_6(x << 6), Y: fixed.Int26_6(baseline << 6)}
-	d.DrawString(text)
+	drawer.Dot = fixed.Point26_6{X: fixed.Int26_6(xPos << 6), Y: fixed.Int26_6(baseline << 6)}
+	drawer.DrawString(text)
 }
 
 // Helper: nearest-neighbor scale of src into dst rectangle on canvas.
 func nnScale(dst draw.Image, rect image.Rectangle, src image.Image) {
-	sw := src.Bounds().Dx()
-	sh := src.Bounds().Dy()
-	dw := rect.Dx()
-	dh := rect.Dy()
-	for y := 0; y < dh; y++ {
-		sy := src.Bounds().Min.Y + (y*sh)/dh
-		for x := 0; x < dw; x++ {
-			sx := src.Bounds().Min.X + (x*sw)/dw
-			c := src.At(sx, sy)
-			dst.Set(rect.Min.X+x, rect.Min.Y+y, c)
+	srcWidth := src.Bounds().Dx()
+	srcHeight := src.Bounds().Dy()
+	dstWidth := rect.Dx()
+	dstHeight := rect.Dy()
+	for y := 0; y < dstHeight; y++ {
+		sy := src.Bounds().Min.Y + (y*srcHeight)/dstHeight
+		for x := 0; x < dstWidth; x++ {
+			sx := src.Bounds().Min.X + (x*srcWidth)/dstWidth
+			pixelColor := src.At(sx, sy)
+			dst.Set(rect.Min.X+x, rect.Min.Y+y, pixelColor)
 		}
 	}
 }
@@ -240,15 +240,15 @@ func blitToFB(dev *fb.Device, canvas *image.RGBA) error {
 		return nil
 	}
 	bounds := dev.Bounds()
-	w := bounds.Dx()
-	h := bounds.Dy()
+	fbWidth := bounds.Dx()
+	fbHeight := bounds.Dy()
 	// For simplicity, write directly using NN sampling from canvas
-	for y := 0; y < h; y++ {
-		sy := (y * CanvasHeight) / h
-		for x := 0; x < w; x++ {
-			sx := (x * CanvasWidth) / w
-			c := canvas.RGBAAt(sx, sy)
-			dev.Set(bounds.Min.X+x, bounds.Min.Y+y, color.RGBA{R: c.R, G: c.G, B: c.B, A: 0xFF})
+	for y := 0; y < fbHeight; y++ {
+		sy := (y * CanvasHeight) / fbHeight
+		for x := 0; x < fbWidth; x++ {
+			sx := (x * CanvasWidth) / fbWidth
+			pixel := canvas.RGBAAt(sx, sy)
+			dev.Set(bounds.Min.X+x, bounds.Min.Y+y, color.RGBA{R: pixel.R, G: pixel.G, B: pixel.B, A: 0xFF})
 		}
 	}
 	return nil
@@ -256,15 +256,15 @@ func blitToFB(dev *fb.Device, canvas *image.RGBA) error {
 
 // Helper: centered text drawing with foreground color and font face.
 func drawTextCentered(img *image.RGBA, text string, baselineY int, fg color.Color, face font.Face) {
-	d := &font.Drawer{
+	drawer := &font.Drawer{
 		Dst:  img,
 		Src:  &image.Uniform{C: fg},
 		Face: face,
 	}
-	w := d.MeasureString(text).Ceil()
-	x := (CanvasWidth - w) / 2
-	d.Dot = fixed.P(x<<6, baselineY<<6)
-	d.DrawString(text)
+	textWidth := drawer.MeasureString(text).Ceil()
+	xPos := (CanvasWidth - textWidth) / 2
+	drawer.Dot = fixed.P(xPos<<6, baselineY<<6)
+	drawer.DrawString(text)
 }
 func drawTextWithOffset(img *image.RGBA, text string, baselineY int, fg color.Color, face font.Face, offX, offY int) {
 	// draw shadow
@@ -274,11 +274,11 @@ func drawTextWithOffset(img *image.RGBA, text string, baselineY int, fg color.Co
 	drawTextAt(img, text, baselineY, fg, face, 0)
 }
 func drawTextAt(img *image.RGBA, text string, baselineY int, fg color.Color, face font.Face, xOffset int) {
-	d := &font.Drawer{Dst: img, Src: &image.Uniform{C: fg}, Face: face}
-	w := d.MeasureString(text).Ceil()
-	x := (CanvasWidth - w) / 2
-	x += xOffset
-	d.Dot = fixed.P(x<<6, baselineY<<6)
-	d.DrawString(text)
+	drawer := &font.Drawer{Dst: img, Src: &image.Uniform{C: fg}, Face: face}
+	textWidth := drawer.MeasureString(text).Ceil()
+	xPos := (CanvasWidth - textWidth) / 2
+	xPos += xOffset
+	drawer.Dot = fixed.P(xPos<<6, baselineY<<6)
+	drawer.DrawString(text)
 }
-func bytesReader(b []byte) *bytes.Reader { return bytes.NewReader(b) }
+func bytesReader(data []byte) *bytes.Reader { return bytes.NewReader(data) }
