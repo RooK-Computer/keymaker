@@ -26,6 +26,8 @@ type FBRenderer struct {
 	fbDev        *fb.Device
 	canvas       *image.RGBA
 	fontFace     font.Face
+	otFont       *opentype.Font
+	faceCache    map[int]font.Face
 	ttFont       *truetype.Font
 	logo         image.Image
 	running      atomic.Bool
@@ -41,101 +43,109 @@ type FBRenderer struct {
 
 func NewFBRenderer() *FBRenderer { return &FBRenderer{} }
 
-func (r *FBRenderer) Start(ctx context.Context) error {
+func (renderer *FBRenderer) Start(ctx context.Context) error {
 	// Open framebuffer
-	dev, err := fb.Open("/dev/fb0")
-	if err != nil {
-		return err
+	fbDevice, openErr := fb.Open("/dev/fb0")
+	if openErr != nil {
+		return openErr
 	}
-	r.fbDev = dev
-	if r.Logger != nil {
-		bounds := dev.Bounds()
-		r.Logger.Infof("fb", "framebuffer open, bounds=%dx%d", bounds.Dx(), bounds.Dy())
+	renderer.fbDev = fbDevice
+	if renderer.Logger != nil {
+		deviceBounds := fbDevice.Bounds()
+		renderer.Logger.Infof("fb", "framebuffer open, bounds=%dx%d", deviceBounds.Dx(), deviceBounds.Dy())
 	}
 
 	// Prepare logical canvas
-	r.canvas = image.NewRGBA(image.Rect(0, 0, CanvasWidth, CanvasHeight))
+	renderer.canvas = image.NewRGBA(image.Rect(0, 0, CanvasWidth, CanvasHeight))
 
 	// Load font from embedded bytes
-	fnt, err := opentype.Parse(assets.FontTTF)
-	if err != nil {
-		r.fontFace = basicfont.Face7x13
-		if r.Logger != nil {
-			r.Logger.Errorf("fb", "font parse failed, using basicfont: %v", err)
+	parsedOTFont, parseErr := opentype.Parse(assets.FontTTF)
+	if parseErr != nil {
+		renderer.fontFace = basicfont.Face7x13
+		if renderer.Logger != nil {
+			renderer.Logger.Errorf("fb", "font parse failed, using basicfont: %v", parseErr)
 		}
 	} else {
-		face, ferr := opentype.NewFace(fnt, &opentype.FaceOptions{Size: 48, DPI: 96, Hinting: font.HintingFull})
-		if ferr != nil {
-			r.fontFace = basicfont.Face7x13
-			if r.Logger != nil {
-				r.Logger.Errorf("fb", "font face create failed, using basicfont: %v", ferr)
-			}
-		} else {
-			r.fontFace = face
-			if r.Logger != nil {
-				r.Logger.Infof("fb", "loaded OTF font at 48pt")
-			}
+		renderer.otFont = parsedOTFont
+		renderer.fontFace = renderer.faceForSize(48)
+		if renderer.Logger != nil {
+			renderer.Logger.Infof("fb", "loaded OTF font")
 		}
 	}
 	// Also try parsing truetype for freetype renderer
 	if tt, terr := truetype.Parse(assets.FontTTF); terr != nil {
-		if r.Logger != nil {
-			r.Logger.Errorf("fb", "truetype parse failed: %v", terr)
+		if renderer.Logger != nil {
+			renderer.Logger.Errorf("fb", "truetype parse failed: %v", terr)
 		}
 	} else {
-		r.ttFont = tt
-		if r.Logger != nil {
-			r.Logger.Infof("fb", "truetype font parsed for freetype")
+		renderer.ttFont = tt
+		if renderer.Logger != nil {
+			renderer.Logger.Infof("fb", "truetype font parsed for freetype")
 		}
 	}
 
 	// Decode logo
-	if !r.NoLogo {
-		img, lerr := png.Decode(bytes.NewReader(assets.LogoPNG))
-		if lerr != nil {
-			if r.Logger != nil {
-				r.Logger.Errorf("fb", "logo load failed: %v", lerr)
+	if !renderer.NoLogo {
+		logoImage, logoErr := png.Decode(bytes.NewReader(assets.LogoPNG))
+		if logoErr != nil {
+			if renderer.Logger != nil {
+				renderer.Logger.Errorf("fb", "logo load failed: %v", logoErr)
 			}
 		} else {
-			r.logo = img
-			if r.Logger != nil {
-				r.Logger.Infof("fb", "logo loaded")
+			renderer.logo = logoImage
+			if renderer.Logger != nil {
+				renderer.Logger.Infof("fb", "logo loaded")
 			}
 		}
 	}
 
-	r.running.Store(true)
+	renderer.running.Store(true)
 	return nil
 }
 
-func (r *FBRenderer) Stop() error {
-	r.running.Store(false)
-	if r.fbDev != nil {
-		r.fbDev.Close()
+func (renderer *FBRenderer) Stop() error {
+	renderer.running.Store(false)
+	for _, face := range renderer.faceCache {
+		if closer, ok := face.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
+	}
+	renderer.faceCache = nil
+	renderer.otFont = nil
+	if renderer.fbDev != nil {
+		renderer.fbDev.Close()
 	}
 	return nil
 }
 
 // SetScreen sets the current logical screen to be drawn.
-func (r *FBRenderer) SetScreen(screen Screen) { r.current = screen }
+func (renderer *FBRenderer) SetScreen(screen Screen) { renderer.current = screen }
+
+func (renderer *FBRenderer) Size() (width int, height int) {
+	if renderer.canvas == nil {
+		return CanvasWidth, CanvasHeight
+	}
+	canvasBounds := renderer.canvas.Bounds()
+	return canvasBounds.Dx(), canvasBounds.Dy()
+}
 
 // Redraw triggers a draw of the current screen.
-func (r *FBRenderer) RedrawWithState(snap state.State) {
-	if !r.running.Load() || r.current == nil || r.fbDev == nil {
+func (renderer *FBRenderer) RedrawWithState(snap state.State) {
+	if !renderer.running.Load() || renderer.current == nil || renderer.fbDev == nil {
 		return
 	}
 	// Clear canvas to background each frame for consistent rendering
-	r.FillBackground()
+	renderer.FillBackground()
 	// Provide a Drawer implementation and ask the screen to draw
-	r.current.Draw(r, snap)
-	_ = blitToFB(r.fbDev, r.canvas)
-	if r.Logger != nil {
-		r.Logger.Infof("fb", "redraw done, phase=%d", snap.Phase)
+	renderer.current.Draw(renderer, snap)
+	_ = blitToFB(renderer.fbDev, renderer.canvas)
+	if renderer.Logger != nil {
+		renderer.Logger.Infof("fb", "redraw done, phase=%d", snap.Phase)
 	}
 }
 
 // RunLoop continuously redraws at ~30 FPS until the context is done.
-func (r *FBRenderer) RunLoop(ctx context.Context, store *state.Store) {
+func (renderer *FBRenderer) RunLoop(ctx context.Context, store *state.Store) {
 	ticker := time.NewTicker(time.Second / 30)
 	defer ticker.Stop()
 	lastLog := time.Now()
@@ -145,9 +155,9 @@ func (r *FBRenderer) RunLoop(ctx context.Context, store *state.Store) {
 			return
 		case <-ticker.C:
 			snap := store.Snapshot()
-			r.RedrawWithState(snap)
-			if r.Logger != nil && time.Since(lastLog) > time.Second {
-				r.Logger.Infof("fb", "heartbeat frame, phase=%d", snap.Phase)
+			renderer.RedrawWithState(snap)
+			if renderer.Logger != nil && time.Since(lastLog) > time.Second {
+				renderer.Logger.Infof("fb", "heartbeat frame, phase=%d", snap.Phase)
 				lastLog = time.Now()
 			}
 		}
@@ -155,67 +165,192 @@ func (r *FBRenderer) RunLoop(ctx context.Context, store *state.Store) {
 }
 
 // Drawer primitives
-func (r *FBRenderer) FillBackground() {
-	draw.Draw(r.canvas, r.canvas.Bounds(), &image.Uniform{C: Background}, image.Point{}, draw.Src)
+func (renderer *FBRenderer) FillBackground() {
+	draw.Draw(renderer.canvas, renderer.canvas.Bounds(), &image.Uniform{C: Background}, image.Point{}, draw.Src)
 }
 
-func (r *FBRenderer) DrawLogoCenteredTop() {
-	if r.logo == nil {
+func (renderer *FBRenderer) faceForSize(size int) font.Face {
+	if size <= 0 {
+		size = 48
+	}
+	if renderer.otFont == nil {
+		return basicfont.Face7x13
+	}
+	if renderer.faceCache == nil {
+		renderer.faceCache = map[int]font.Face{}
+	}
+	if face, ok := renderer.faceCache[size]; ok {
+		return face
+	}
+	fontFace, faceErr := opentype.NewFace(renderer.otFont, &opentype.FaceOptions{Size: float64(size), DPI: 96, Hinting: font.HintingFull})
+	if faceErr != nil {
+		if renderer.Logger != nil {
+			renderer.Logger.Errorf("fb", "font face create failed (size=%d), using basicfont: %v", size, faceErr)
+		}
+		return basicfont.Face7x13
+	}
+	renderer.faceCache[size] = fontFace
+	return fontFace
+}
+
+func (renderer *FBRenderer) MeasureText(text string, style TextStyle) TextMetrics {
+	fontFace := renderer.faceForSize(style.Size)
+	faceMetrics := fontFace.Metrics()
+	ascent := faceMetrics.Ascent.Ceil()
+	descent := faceMetrics.Descent.Ceil()
+	height := ascent + descent
+	lineHeight := faceMetrics.Height.Ceil()
+
+	fontDrawer := &font.Drawer{Face: fontFace}
+	width := fontDrawer.MeasureString(text).Ceil()
+	return TextMetrics{Width: width, Height: height, Ascent: ascent, Descent: descent, LineHeight: lineHeight}
+}
+
+func (renderer *FBRenderer) DrawText(text string, x, y int, style TextStyle) TextMetrics {
+	if renderer.canvas == nil {
+		return TextMetrics{}
+	}
+	if style.Color == nil {
+		style.Color = Foreground
+	}
+	fontFace := renderer.faceForSize(style.Size)
+	textMetrics := renderer.MeasureText(text, style)
+
+	xPos := x
+	switch style.Align {
+	case TextAlignCenter:
+		xPos = x - (textMetrics.Width / 2)
+	case TextAlignRight:
+		xPos = x - textMetrics.Width
+	default:
+		// left
+	}
+	baseline := y + textMetrics.Ascent
+
+	fontDrawer := &font.Drawer{Dst: renderer.canvas, Src: image.NewUniform(style.Color), Face: fontFace}
+	fontDrawer.Dot = fixed.P(xPos<<6, baseline<<6)
+	fontDrawer.DrawString(text)
+	return textMetrics
+}
+
+func (renderer *FBRenderer) ImageSize(img image.Image) (width int, height int) {
+	if img == nil {
+		return 0, 0
+	}
+	imageBounds := img.Bounds()
+	return imageBounds.Dx(), imageBounds.Dy()
+}
+
+func (renderer *FBRenderer) DrawImage(img image.Image, x, y int, _ ImageOpts) {
+	if renderer.canvas == nil || img == nil {
 		return
 	}
-	// Limit logo to 25% of canvas width and center on screen
-	maxLogoWidth := int(float64(CanvasWidth) * 0.25)
+	srcBounds := img.Bounds()
+	dstRect := image.Rect(x, y, x+srcBounds.Dx(), y+srcBounds.Dy())
+	draw.Draw(renderer.canvas, dstRect, img, srcBounds.Min, draw.Over)
+}
+
+func (renderer *FBRenderer) DrawImageInRect(img image.Image, destinationRect image.Rectangle, mode ScaleMode) {
+	if renderer.canvas == nil || img == nil {
+		return
+	}
+	if destinationRect.Empty() {
+		return
+	}
+	srcBounds := img.Bounds()
+	srcWidth, srcHeight := srcBounds.Dx(), srcBounds.Dy()
+	if srcWidth <= 0 || srcHeight <= 0 {
+		return
+	}
+
+	// Clip destination to canvas.
+	destinationRect = destinationRect.Intersect(renderer.canvas.Bounds())
+	if destinationRect.Empty() {
+		return
+	}
+
+	switch mode {
+	case ScaleModeStretch:
+		xdraw.NearestNeighbor.Scale(renderer.canvas, destinationRect, img, srcBounds, xdraw.Over, nil)
+		return
+	case ScaleModeFill:
+		// Crop source so that scaled output fully covers rect.
+		dstWidth, dstHeight := destinationRect.Dx(), destinationRect.Dy()
+		scaleX := float64(dstWidth) / float64(srcWidth)
+		scaleY := float64(dstHeight) / float64(srcHeight)
+		scale := scaleX
+		if scaleY > scale {
+			scale = scaleY
+		}
+		cropWidth := int(float64(dstWidth) / scale)
+		cropHeight := int(float64(dstHeight) / scale)
+		if cropWidth <= 0 || cropHeight <= 0 {
+			return
+		}
+		cropX := srcBounds.Min.X + (srcWidth-cropWidth)/2
+		cropY := srcBounds.Min.Y + (srcHeight-cropHeight)/2
+		srcCropRect := image.Rect(cropX, cropY, cropX+cropWidth, cropY+cropHeight)
+		xdraw.NearestNeighbor.Scale(renderer.canvas, destinationRect, img, srcCropRect, xdraw.Over, nil)
+		return
+	default:
+		// Fit
+		dstWidth, dstHeight := destinationRect.Dx(), destinationRect.Dy()
+		scaleX := float64(dstWidth) / float64(srcWidth)
+		scaleY := float64(dstHeight) / float64(srcHeight)
+		scale := scaleX
+		if scaleY < scale {
+			scale = scaleY
+		}
+		scaledWidth := int(float64(srcWidth) * scale)
+		scaledHeight := int(float64(srcHeight) * scale)
+		if scaledWidth <= 0 || scaledHeight <= 0 {
+			return
+		}
+		destX := destinationRect.Min.X + (dstWidth-scaledWidth)/2
+		destY := destinationRect.Min.Y + (dstHeight-scaledHeight)/2
+		scaledDstRect := image.Rect(destX, destY, destX+scaledWidth, destY+scaledHeight)
+		xdraw.NearestNeighbor.Scale(renderer.canvas, scaledDstRect, img, srcBounds, xdraw.Over, nil)
+		return
+	}
+}
+
+func (renderer *FBRenderer) DrawLogoCenteredTop() {
+	if renderer.logo == nil {
+		return
+	}
+	canvasWidth, canvasHeight := renderer.Size()
+	// Limit logo to 25% of canvas width.
+	maxLogoWidth := int(float64(canvasWidth) * 0.25)
+	logoWidth, logoHeight := renderer.logo.Bounds().Dx(), renderer.logo.Bounds().Dy()
+	if logoWidth <= 0 || logoHeight <= 0 {
+		return
+	}
 	scale := 1.0
-	logoWidth := r.logo.Bounds().Dx()
-	logoHeight := r.logo.Bounds().Dy()
 	if logoWidth > maxLogoWidth {
 		scale = float64(maxLogoWidth) / float64(logoWidth)
 	}
-	scaledWidth := int(float64(logoWidth) * scale)
-	scaledHeight := int(float64(logoHeight) * scale)
-	// Center vertically and horizontally
-	destinationRect := image.Rect((CanvasWidth-scaledWidth)/2, (CanvasHeight-scaledHeight)/2-(scaledHeight/4), (CanvasWidth-scaledWidth)/2+scaledWidth, (CanvasHeight-scaledHeight)/2-(scaledHeight/4)+scaledHeight)
-	r.lastLogoRect = destinationRect
-	// Scale into a temporary RGBA and composite with alpha
-	temp := image.NewRGBA(destinationRect)
-	xdraw.NearestNeighbor.Scale(temp, temp.Bounds(), r.logo, r.logo.Bounds(), xdraw.Over, nil)
-	draw.Draw(r.canvas, destinationRect, temp, temp.Bounds().Min, draw.Over)
+	scaledLogoWidth := int(float64(logoWidth) * scale)
+	scaledLogoHeight := int(float64(logoHeight) * scale)
+	destX := (canvasWidth - scaledLogoWidth) / 2
+	destY := (canvasHeight-scaledLogoHeight)/2 - (scaledLogoHeight / 4)
+	logoRect := image.Rect(destX, destY, destX+scaledLogoWidth, destY+scaledLogoHeight)
+	renderer.lastLogoRect = logoRect
+	renderer.DrawImageInRect(renderer.logo, logoRect, ScaleModeStretch)
 }
 
-func (r *FBRenderer) DrawTextCentered(text string) {
-	// Ensure we have a font face
-	if r.fontFace == nil {
-		r.fontFace = basicfont.Face7x13
-		if r.Logger != nil {
-			r.Logger.Errorf("fb", "fontFace nil at draw, defaulting to basicfont")
-		}
-	}
-	// Position text below logo using metrics
-	metrics := r.fontFace.Metrics()
-	ascent := metrics.Ascent.Ceil()
+func (renderer *FBRenderer) DrawTextCentered(text string) {
+	canvasWidth, canvasHeight := renderer.Size()
+	style := TextStyle{Color: Foreground, Size: 48, Align: TextAlignCenter}
+	textMetrics := renderer.MeasureText(text, style)
 	margin := 40
 	baseline := 0
-	// If logoRect is not set or off-screen, use vertical center
-	if r.lastLogoRect.Empty() || r.lastLogoRect.Max.Y <= 0 {
-		baseline = CanvasHeight/2 + ascent/2
+	if renderer.lastLogoRect.Empty() || renderer.lastLogoRect.Max.Y <= 0 {
+		baseline = canvasHeight/2 + (textMetrics.Ascent / 2)
 	} else {
-		logoBottom := r.lastLogoRect.Max.Y
-		baseline = logoBottom + margin + ascent
+		baseline = renderer.lastLogoRect.Max.Y + margin + textMetrics.Ascent
 	}
-	// Measure width using font.Drawer to center horizontally
-	// Use Foreground color with explicit alpha channel
-	textColor := color.RGBA{R: Foreground.R, G: Foreground.G, B: Foreground.B, A: 255}
-	drawer := &font.Drawer{
-		Dst:  r.canvas,
-		Src:  image.NewUniform(textColor),
-		Face: r.fontFace,
-	}
-	textWidth := drawer.MeasureString(text).Ceil()
-	xPos := (CanvasWidth - textWidth) / 2
-
-	// Draw text directly onto canvas
-	drawer.Dot = fixed.Point26_6{X: fixed.Int26_6(xPos << 6), Y: fixed.Int26_6(baseline << 6)}
-	drawer.DrawString(text)
+	textTopY := baseline - textMetrics.Ascent
+	renderer.DrawText(text, canvasWidth/2, textTopY, style)
 }
 
 // Helper: nearest-neighbor scale of src into dst rectangle on canvas.
