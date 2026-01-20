@@ -39,15 +39,23 @@ command -v gpioset >/dev/null 2>&1 || {
 
 kill_existing_gpioset() {
   # Free the GPIO line in case a prior daemonized gpioset instance is holding it.
-  # We target processes that look like they are setting this chip+line.
+  # We identify our own gpioset process(es) via the consumer string and ignore
+  # other arguments (chip/line/value). This keeps the match simple and robust.
   local pids=""
 
-  if command -v pgrep >/dev/null 2>&1; then
-    # Typical libgpiod v2 invocation: gpioset -c gpiochip0 ... 7=0 --daemonize
-    pids="$(pgrep -f "(^|[[:space:]])gpioset([[:space:]]|$).*([[:space:]]-c[[:space:]]+${chip}([[:space:]]|$)|[[:space:]]${chip}([[:space:]]|$)).*([[:space:]]|^)${line}=[01]([[:space:]]|$)" || true)"
-  else
-    # Busybox-friendly fallback.
-    pids="$(ps ax -o pid= -o command= | grep -E "(^|[[:space:]])gpioset([[:space:]]|$)" | grep -E "([[:space:]]-c[[:space:]]+${chip}([[:space:]]|$)|[[:space:]]${chip}([[:space:]]|$))" | grep -E "([[:space:]]|^)${line}=[01]([[:space:]]|$)" | awk '{print $1}' || true)"
+  # Prefer a basic ps|grep|grep pipeline for portability.
+  # Note: use a [g]pioset regex to avoid matching the grep process itself.
+  pids="$(ps ax -o pid= -o command= 2>/dev/null | \
+    grep -E "[g]pioset" | \
+    grep -F "${consumer}" | \
+    awk '{print $1}' || true)"
+
+  # Fallback for very minimal ps implementations.
+  if [[ -z "$pids" ]]; then
+    pids="$(ps ax 2>/dev/null | \
+      grep -E "[g]pioset" | \
+      grep -F "${consumer}" | \
+      awk '{print $1}' || true)"
   fi
 
   [[ -n "$pids" ]] || return 0
