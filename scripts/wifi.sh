@@ -74,6 +74,50 @@ conn_ssid() {
   nmcli -g 802-11-wireless.ssid connection show "$name" 2>/dev/null || true
 }
 
+find_wifi_conn_for_ssid() {
+  # Return the first saved WiFi connection whose configured SSID matches.
+  # This handles cases where the connection name isn't equal to the SSID.
+  local wanted_ssid="$1"
+
+  nmcli -t -f NAME,TYPE connection show | while IFS=: read -r name type; do
+    [[ "$type" == "802-11-wireless" ]] || continue
+    if [[ "$(conn_ssid "$name")" == "$wanted_ssid" ]]; then
+      printf '%s\n' "$name"
+      exit 0
+    fi
+  done
+}
+
+scan_wifi_security() {
+  # Return the SECURITY field from the current scan for the first matching SSID.
+  # Note: SSIDs may repeat; first match is usually good enough here.
+  local wanted_ssid="$1"
+
+  nmcli -t -f SSID,SECURITY device wifi list --rescan yes 2>/dev/null | while IFS=: read -r ssid security; do
+    [[ "$ssid" == "$wanted_ssid" ]] || continue
+    printf '%s\n' "$security"
+    exit 0
+  done
+}
+
+set_wifi_psk_security() {
+  local conn_name="$1"
+  local password="$2"
+  local key_mgmt="$3"
+
+  # Set key management first, then PSK.
+  nmcli connection modify "$conn_name" 802-11-wireless-security.key-mgmt "$key_mgmt" >/dev/null 2>&1 \
+    || nmcli connection modify "$conn_name" wifi-sec.key-mgmt "$key_mgmt" >/dev/null
+
+  nmcli connection modify "$conn_name" 802-11-wireless-security.psk "$password" >/dev/null 2>&1 \
+    || nmcli connection modify "$conn_name" wifi-sec.psk "$password" >/dev/null
+
+  # Clear common WEP leftovers if the profile previously targeted a different security mode.
+  nmcli connection modify "$conn_name" wifi-sec.wep-key0 "" >/dev/null 2>&1 || true
+  nmcli connection modify "$conn_name" wifi-sec.wep-key-type 0 >/dev/null 2>&1 || true
+  nmcli connection modify "$conn_name" wifi-sec.auth-alg "" >/dev/null 2>&1 || true
+}
+
 force_open_wifi_security() {
   # NetworkManager interprets key-mgmt=none as WEP. For an actually open network,
   # remove the entire wifi security setting (and fall back to a few compatibility clears).
@@ -180,13 +224,43 @@ join_network() {
   # Stop hotspot if it is currently active.
   hotspot_down_if_active "$hotspot_conn_name"
 
-  # If there's a connection whose name equals the SSID, update it.
+  # Prefer updating an existing saved connection (by name or by SSID) to avoid
+  # NetworkManager trying to activate a stale/broken profile.
+  local conn_name=""
   if conn_exists "$ssid" && [[ "$(conn_type "$ssid")" == "802-11-wireless" ]]; then
+    conn_name="$ssid"
+  else
+    conn_name="$(find_wifi_conn_for_ssid "$ssid" || true)"
+  fi
+
+  if [[ -n "$conn_name" ]]; then
     if [[ -n "$password" ]]; then
-      nmcli connection modify "$ssid" 802-11-wireless-security.psk "$password" >/dev/null
-      nmcli connection modify "$ssid" 802-11-wireless-security.key-mgmt wpa-psk >/dev/null || true
+      local security
+      security="$(scan_wifi_security "$ssid" || true)"
+
+      # If we cannot see the network right now, default to WPA-PSK.
+      # This is still better than leaving key-mgmt unset (which causes activation errors).
+      local key_mgmt="wpa-psk"
+      if [[ -n "$security" ]]; then
+        if echo "$security" | grep -q "802.1X"; then
+          echo "wifi: '$ssid' looks like an 802.1X network; not supported by join mode" >&2
+          exit 3
+        fi
+
+        if [[ "$security" == "--" || "$security" == "" ]]; then
+          force_open_wifi_security "$conn_name"
+          key_mgmt=""
+        elif echo "$security" | grep -q "WPA3" && ! echo "$security" | grep -Eq "WPA2|WPA1"; then
+          key_mgmt="sae"
+        fi
+      fi
+
+      if [[ -n "$key_mgmt" ]]; then
+        set_wifi_psk_security "$conn_name" "$password" "$key_mgmt"
+      fi
     fi
-    nmcli connection up "$ssid" >/dev/null
+
+    nmcli connection up "$conn_name" >/dev/null
     return 0
   fi
 
