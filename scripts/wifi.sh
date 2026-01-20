@@ -74,6 +74,22 @@ conn_ssid() {
   nmcli -g 802-11-wireless.ssid connection show "$name" 2>/dev/null || true
 }
 
+force_open_wifi_security() {
+  # NetworkManager interprets key-mgmt=none as WEP. For an actually open network,
+  # remove the entire wifi security setting (and fall back to a few compatibility clears).
+  local conn_name="$1"
+
+  nmcli connection modify "$conn_name" -802-11-wireless-security >/dev/null 2>&1 || true
+  nmcli connection modify "$conn_name" -wifi-sec >/dev/null 2>&1 || true
+
+  # Compatibility: clear common security properties if the setting removal is not supported.
+  nmcli connection modify "$conn_name" 802-11-wireless-security.key-mgmt "" >/dev/null 2>&1 || true
+  nmcli connection modify "$conn_name" wifi-sec.key-mgmt "" >/dev/null 2>&1 || true
+  nmcli connection modify "$conn_name" wifi-sec.wep-key0 "" >/dev/null 2>&1 || true
+  nmcli connection modify "$conn_name" wifi-sec.wep-key-type 0 >/dev/null 2>&1 || true
+  nmcli connection modify "$conn_name" wifi-sec.auth-alg "" >/dev/null 2>&1 || true
+}
+
 ensure_hotspot_conn() {
   local iface="$1"
   local conn_name="$2"
@@ -81,6 +97,8 @@ ensure_hotspot_conn() {
   local ssid_prefix="$4"
 
   if conn_exists "$conn_name"; then
+    # Ensure an older/partially created profile doesn't accidentally require WEP/WPA.
+    force_open_wifi_security "$conn_name"
     return 0
   fi
 
@@ -100,8 +118,8 @@ ensure_hotspot_conn() {
     ipv6.method ignore \
     >/dev/null
 
-  # Ensure it is unencrypted.
-  nmcli connection modify "$conn_name" 802-11-wireless-security.key-mgmt none >/dev/null
+  # Ensure it is unencrypted (open).
+  force_open_wifi_security "$conn_name"
 
   # Make it resilient across boots.
   nmcli connection modify "$conn_name" connection.autoconnect yes >/dev/null
@@ -112,6 +130,9 @@ hotspot_up() {
   local conn_name="$2"
 
   nmcli radio wifi on >/dev/null || true
+
+  # Enforce open hotspot security right before bringing it up.
+  force_open_wifi_security "$conn_name"
 
   # Disconnect to reduce flakiness when switching from another active connection.
   nmcli device disconnect "$iface" >/dev/null 2>&1 || true
