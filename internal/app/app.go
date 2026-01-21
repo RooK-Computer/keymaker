@@ -26,6 +26,7 @@ type App struct {
 	Logger  Logger
 	NoLogo  bool
 	Debug   bool
+	baseCtx context.Context
 
 	currentScreen render.Screen
 
@@ -53,6 +54,7 @@ func (app *App) Exit(err error) {
 }
 
 func (app *App) Start(ctx context.Context) error {
+	app.baseCtx = ctx
 	if app.exitCh == nil {
 		app.exitCh = make(chan error, 1)
 	}
@@ -84,7 +86,7 @@ func (app *App) Start(ctx context.Context) error {
 	// Show the ejection screen; it owns the eject/wait logic.
 	runner := system.ShellRunner{Logger: app.Logger}
 	ejectScreen := screens.NewRemoveCartridgeScreen(runner, app.Logger, app)
-	if err := app.SetScreen(ctx, ejectScreen); err != nil {
+	if err := app.SetScreen(ejectScreen); err != nil {
 		return err
 	}
 
@@ -112,13 +114,17 @@ func (app *App) Start(ctx context.Context) error {
 	return err
 }
 
-func (app *App) SetScreen(ctx context.Context, screen render.Screen) error {
+func (app *App) SetScreen(screen render.Screen) error {
 	if app.currentScreen != nil {
 		_ = app.currentScreen.Stop()
 	}
 	app.currentScreen = screen
 	app.Render.SetScreen(screen)
-	return screen.Start(ctx)
+	baseCtx := app.baseCtx
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
+	return screen.Start(baseCtx)
 }
 
 func (app *App) Stop() error {

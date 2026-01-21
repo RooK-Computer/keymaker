@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"time"
 
 	"github.com/rook-computer/keymaker/internal/render"
 	"github.com/rook-computer/keymaker/internal/state"
@@ -17,7 +16,6 @@ type InsertCartridgeScreen struct {
 	App    AppController
 
 	TimeoutSeconds int
-	RetryDelay     time.Duration
 
 	cancel context.CancelFunc
 
@@ -30,8 +28,7 @@ func NewInsertCartridgeScreen(runner system.Runner, logger Logger, app AppContro
 		Runner:         runner,
 		Logger:         logger,
 		App:            app,
-		TimeoutSeconds: 60,
-		RetryDelay:     500 * time.Millisecond,
+		TimeoutSeconds: 300,
 		message:        "please insert cartridge",
 	}
 }
@@ -56,14 +53,11 @@ func (screen *InsertCartridgeScreen) Start(ctx context.Context) error {
 			if err := system.WaitForInsert(screenCtx, screen.Runner, screen.TimeoutSeconds); err == nil {
 				break
 			}
-
-			select {
-			case <-screenCtx.Done():
+			if screenCtx.Err() != nil {
 				return
-			case <-time.After(screen.RetryDelay):
-				if screen.Logger != nil {
-					screen.Logger.Infof("app", "waiting for cartridge...")
-				}
+			}
+			if screen.Logger != nil {
+				screen.Logger.Infof("app", "still waiting for cartridge (last wait timed out after %ds)", screen.TimeoutSeconds)
 			}
 		}
 
@@ -134,7 +128,14 @@ func (screen *InsertCartridgeScreen) Start(ctx context.Context) error {
 
 		cartridgeInfo.SetBusy(false)
 		screen.setMessage("cartridge ready")
-		screen.App.Exit(nil)
+		nextScreen := NewWiFiSetupScreen(screen.Runner, screen.Logger, screen.App)
+		if err := screen.App.SetScreen(nextScreen); err != nil {
+			if screen.Logger != nil {
+				screen.Logger.Errorf("app", "failed to switch to wifi setup screen: %v", err)
+			}
+			screen.App.Exit(err)
+			return
+		}
 	}()
 
 	return nil

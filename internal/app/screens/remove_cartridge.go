@@ -18,7 +18,7 @@ type Logger interface {
 // AppController is implemented by the host application.
 // Screens can switch screens and (on error) request termination.
 type AppController interface {
-	SetScreen(ctx context.Context, screen render.Screen) error
+	SetScreen(screen render.Screen) error
 	Exit(err error)
 }
 
@@ -74,7 +74,7 @@ func (screen *RemoveCartridgeScreen) Start(ctx context.Context) error {
 		for {
 			if err := system.WaitForEject(screenCtx, screen.Runner, screen.TimeoutSeconds); err == nil {
 				nextScreen := NewInsertCartridgeScreen(screen.Runner, screen.Logger, screen.App)
-				if err := screen.App.SetScreen(screenCtx, nextScreen); err != nil {
+				if err := screen.App.SetScreen(nextScreen); err != nil {
 					if screen.Logger != nil {
 						screen.Logger.Errorf("app", "failed to switch to insert cartridge screen: %v", err)
 					}
