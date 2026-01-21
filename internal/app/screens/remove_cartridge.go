@@ -15,9 +15,10 @@ type Logger interface {
 	Errorf(component string, format string, args ...interface{})
 }
 
-// AppExiter is implemented by the host application.
-// Screens can call Exit to request termination.
-type AppExiter interface {
+// AppController is implemented by the host application.
+// Screens can switch screens and (on error) request termination.
+type AppController interface {
+	SetScreen(ctx context.Context, screen render.Screen) error
 	Exit(err error)
 }
 
@@ -26,7 +27,7 @@ type AppExiter interface {
 type RemoveCartridgeScreen struct {
 	Runner system.Runner
 	Logger Logger
-	Exiter AppExiter
+	App    AppController
 
 	TimeoutSeconds int
 	RetryDelay     time.Duration
@@ -34,11 +35,11 @@ type RemoveCartridgeScreen struct {
 	cancel context.CancelFunc
 }
 
-func NewRemoveCartridgeScreen(runner system.Runner, logger Logger, exiter AppExiter) *RemoveCartridgeScreen {
+func NewRemoveCartridgeScreen(runner system.Runner, logger Logger, app AppController) *RemoveCartridgeScreen {
 	return &RemoveCartridgeScreen{
 		Runner:         runner,
 		Logger:         logger,
-		Exiter:         exiter,
+		App:            app,
 		TimeoutSeconds: 60,
 		RetryDelay:     500 * time.Millisecond,
 	}
@@ -48,8 +49,8 @@ func (screen *RemoveCartridgeScreen) Start(ctx context.Context) error {
 	if screen.Runner == nil {
 		return errors.New("no system runner configured")
 	}
-	if screen.Exiter == nil {
-		return errors.New("no app exiter configured")
+	if screen.App == nil {
+		return errors.New("no app controller configured")
 	}
 
 	screenCtx, cancel := context.WithCancel(ctx)
@@ -72,7 +73,14 @@ func (screen *RemoveCartridgeScreen) Start(ctx context.Context) error {
 
 		for {
 			if err := system.WaitForEject(screenCtx, screen.Runner, screen.TimeoutSeconds); err == nil {
-				screen.Exiter.Exit(nil)
+				nextScreen := NewInsertCartridgeScreen(screen.Runner, screen.Logger, screen.App)
+				if err := screen.App.SetScreen(screenCtx, nextScreen); err != nil {
+					if screen.Logger != nil {
+						screen.Logger.Errorf("app", "failed to switch to insert cartridge screen: %v", err)
+					}
+					screen.App.Exit(err)
+					return
+				}
 				return
 			}
 

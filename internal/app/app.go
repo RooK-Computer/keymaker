@@ -84,7 +84,7 @@ func (app *App) Start(ctx context.Context) error {
 	// Show the ejection screen; it owns the eject/wait logic.
 	runner := system.ShellRunner{Logger: app.Logger}
 	ejectScreen := screens.NewRemoveCartridgeScreen(runner, app.Logger, app)
-	if err := app.setScreen(ctx, ejectScreen); err != nil {
+	if err := app.SetScreen(ctx, ejectScreen); err != nil {
 		return err
 	}
 
@@ -112,7 +112,7 @@ func (app *App) Start(ctx context.Context) error {
 	return err
 }
 
-func (app *App) setScreen(ctx context.Context, screen render.Screen) error {
+func (app *App) SetScreen(ctx context.Context, screen render.Screen) error {
 	if app.currentScreen != nil {
 		_ = app.currentScreen.Stop()
 	}
