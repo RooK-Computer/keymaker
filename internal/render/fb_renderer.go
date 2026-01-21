@@ -228,7 +228,8 @@ func (renderer *FBRenderer) DrawText(text string, x, y int, style TextStyle) Tex
 	baseline := y + textMetrics.Ascent
 
 	fontDrawer := &font.Drawer{Dst: renderer.canvas, Src: image.NewUniform(style.Color), Face: fontFace}
-	fontDrawer.Dot = fixed.P(xPos<<6, baseline<<6)
+	// fixed.P expects pixel coordinates and internally converts to 26.6 fixed-point.
+	fontDrawer.Dot = fixed.P(xPos, baseline)
 	fontDrawer.DrawString(text)
 	return textMetrics
 }
@@ -398,7 +399,7 @@ func drawTextCentered(img *image.RGBA, text string, baselineY int, fg color.Colo
 	}
 	textWidth := drawer.MeasureString(text).Ceil()
 	xPos := (CanvasWidth - textWidth) / 2
-	drawer.Dot = fixed.P(xPos<<6, baselineY<<6)
+	drawer.Dot = fixed.P(xPos, baselineY)
 	drawer.DrawString(text)
 }
 func drawTextWithOffset(img *image.RGBA, text string, baselineY int, fg color.Color, face font.Face, offX, offY int) {
@@ -413,7 +414,7 @@ func drawTextAt(img *image.RGBA, text string, baselineY int, fg color.Color, fac
 	textWidth := drawer.MeasureString(text).Ceil()
 	xPos := (CanvasWidth - textWidth) / 2
 	xPos += xOffset
-	drawer.Dot = fixed.P(xPos<<6, baselineY<<6)
+	drawer.Dot = fixed.P(xPos, baselineY)
 	drawer.DrawString(text)
 }
 func bytesReader(data []byte) *bytes.Reader { return bytes.NewReader(data) }
