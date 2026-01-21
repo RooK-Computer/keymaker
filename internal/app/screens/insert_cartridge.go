@@ -46,7 +46,7 @@ func (screen *InsertCartridgeScreen) Start(ctx context.Context) error {
 
 	cartridgeInfo := state.GetCartridgeInfo()
 	cartridgeInfo.Reset()
-	screen.setMessage("please insert cartridge (detecting it will take a while...)")
+	screen.setMessage("please insert cartridge")
 
 	go func() {
 		for {
