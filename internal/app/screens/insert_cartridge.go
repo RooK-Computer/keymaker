@@ -155,8 +155,8 @@ func (screen *InsertCartridgeScreen) setMessage(message string) {
 }
 
 func (screen *InsertCartridgeScreen) getMessage() string {
-	//screen.mu.RLock()
-	//defer screen.mu.RUnlock()
+	screen.mu.RLock()
+	defer screen.mu.RUnlock()
 	return screen.message
 }
 
