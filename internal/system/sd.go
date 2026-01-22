@@ -12,6 +12,7 @@ const (
 	waitForInsertScript    = "wait_for_sd.sh"
 	mountCartridgeScript   = "mount_sd.sh"
 	unmountCartridgeScript = "unmount_sd.sh"
+	isPresentScript        = "is_sd_present.sh"
 	isMountedScript        = "is_sd_mounted.sh"
 	isRetroPieScript       = "is_sd_retropie.sh"
 	retroPieSystemsScript  = "sd_retropie_systems.sh"
@@ -71,6 +72,15 @@ func UnmountCartridge(ctx context.Context, r Runner) error {
 func IsCartridgeMounted(ctx context.Context, r Runner) (bool, error) {
 	// Non-zero exit means "not mounted".
 	_, _, err := r.Run(ctx, isMountedScript)
+	if err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
+func IsCartridgePresent(ctx context.Context, r Runner) (bool, error) {
+	// Non-zero exit means "not present".
+	_, _, err := r.Run(ctx, isPresentScript)
 	if err != nil {
 		return false, nil
 	}

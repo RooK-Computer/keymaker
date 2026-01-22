@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
+	"github.com/rook-computer/keymaker/internal/cartridge"
 	"github.com/rook-computer/keymaker/internal/render"
 	"github.com/rook-computer/keymaker/internal/state"
 	"github.com/rook-computer/keymaker/internal/system"
@@ -61,72 +63,13 @@ func (screen *InsertCartridgeScreen) Start(ctx context.Context) error {
 			}
 		}
 
-		cartridgeInfo.SetPresent(true)
-		cartridgeInfo.SetHasWorkCartridge(true)
-
 		screen.setMessage("analyzing cartridge")
-		cartridgeInfo.SetBusy(true)
-
-		mountedBefore, err := system.IsCartridgeMounted(screenCtx, screen.Runner)
-		if err != nil {
-			if screen.Logger != nil {
-				screen.Logger.Errorf("system", "mount detection failed: %v", err)
-			}
-		}
-
-		mountedNow := mountedBefore
-		if !mountedBefore {
-			if err := system.MountCartridge(screenCtx, screen.Runner); err != nil {
-				if screen.Logger != nil {
-					screen.Logger.Errorf("system", "mount failed: %v", err)
-				}
-			} else {
-				mountedNow = true
-			}
-		}
-		cartridgeInfo.SetMounted(mountedNow)
-
-		isRetroPie, err := system.IsRetroPieCartridge(screenCtx, screen.Runner)
-		if err != nil {
-			if screen.Logger != nil {
-				screen.Logger.Errorf("system", "retropie check failed: %v", err)
-			}
-			isRetroPie = false
-		}
-
-		var systems []string
-		if isRetroPie {
-			systems, err = system.RetroPieSystems(screenCtx, screen.Runner)
-			if err != nil {
-				// Per implementation plan: if systems fail, overrule and treat as not RetroPie.
-				if screen.Logger != nil {
-					screen.Logger.Errorf("system", "retropie systems failed, treating as non-retropie: %v", err)
-				}
-				isRetroPie = false
-				systems = nil
-			}
-		}
-		cartridgeInfo.SetRetroPie(isRetroPie, systems)
-
-		// If the cartridge wasn't mounted before this screen, ensure it isn't left mounted.
-		if !mountedBefore {
-			mountedAfter, err := system.IsCartridgeMounted(screenCtx, screen.Runner)
-			if err != nil {
-				if screen.Logger != nil {
-					screen.Logger.Errorf("system", "mount detection failed (post-analyze): %v", err)
-				}
-			} else if mountedAfter {
-				if err := system.UnmountCartridge(screenCtx, screen.Runner); err != nil {
-					if screen.Logger != nil {
-						screen.Logger.Errorf("system", "unmount failed: %v", err)
-					}
-				} else {
-					cartridgeInfo.SetMounted(false)
-				}
-			}
-		}
-
-		cartridgeInfo.SetBusy(false)
+		_ = cartridge.DetectAndUpdate(screenCtx, screen.Runner, screen.Logger, cartridge.DetectOptions{
+			HasWorkCartridge: true,
+			ManageBusy:       true,
+			Retries:          3,
+			RetryDelay:       750 * time.Millisecond,
+		})
 		screen.setMessage("cartridge ready")
 		nextScreen := NewWiFiSetupScreen(screen.Runner, screen.Logger, screen.App)
 		if err := screen.App.SetScreen(nextScreen); err != nil {

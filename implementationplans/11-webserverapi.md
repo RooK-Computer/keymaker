@@ -1,4 +1,4 @@
-# Rook Cartridge Writer Assistant, Implementation Plan 10: the main screen
+# Rook Cartridge Writer Assistant, Implementation Plan 11: http api
 
 The software we're going to build here will be run on a custom retro gaming console which utilizes cartridges.
 It is built on Raspberry PI CM4 Modules and the cartridges are essentially SD Card slots. 

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"time"
 
+	"github.com/rook-computer/keymaker/internal/cartridge"
 	"github.com/rook-computer/keymaker/internal/state"
 	"github.com/rook-computer/keymaker/internal/system"
 )
@@ -38,6 +40,15 @@ func (app *App) HandleFlash(ctx context.Context, reader io.Reader) error {
 	}
 
 	err := app.Flash.Start(ctx, reader)
+	if err == nil {
+		// Re-detect cartridge contents after flashing (partitions may take a moment to settle).
+		_ = cartridge.DetectAndUpdate(ctx, runner, app.Logger, cartridge.DetectOptions{
+			HasWorkCartridge: true,
+			ManageBusy:       false,
+			Retries:          6,
+			RetryDelay:       1 * time.Second,
+		})
+	}
 	if app.Store != nil {
 		if err != nil {
 			app.Store.SetPhase(state.ERROR)
