@@ -44,8 +44,8 @@ func main() {
 
 	// Subsystem stubs (renderer is real to show the local UI)
 	renderer := render.NewFBRenderer()
-	server := &web.NoopServer{}
-	flasher := &flash.NoopFlasher{}
+	server := web.NewHTTPServer(":80")
+	flasher := flash.NewScriptFlasher()
 	btns := buttons.NewNoopButtons()
 
 	// App construction
@@ -53,6 +53,8 @@ func main() {
 	a.Logger = logger
 	a.NoLogo = *noLogo
 	a.Debug = *debug
+	server.EjectFunc = a.HandleEject
+	server.FlashFunc = a.HandleFlash
 
 	if err := a.Start(ctx); err != nil {
 		fmt.Println("app start error:", err)

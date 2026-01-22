@@ -34,6 +34,23 @@ type App struct {
 	exitCh   chan error
 }
 
+// HandleEject is used by the web API to switch to the ejection screen.
+// It best-effort unmounts the cartridge first.
+func (app *App) HandleEject(ctx context.Context) error {
+	runner := system.ShellRunner{Logger: app.Logger}
+	snap := state.GetCartridgeInfo().Snapshot()
+	if snap.Mounted {
+		if err := system.UnmountCartridge(ctx, runner); err != nil {
+			app.Logger.Errorf("system", "unmount before eject failed: %v", err)
+			// Continue anyway: ejection screen can still attempt to proceed.
+		}
+		state.GetCartridgeInfo().SetMounted(false)
+	}
+
+	ejectScreen := screens.NewRemoveCartridgeScreen(runner, app.Logger, app)
+	return app.SetScreen(ejectScreen)
+}
+
 func New(store *state.Store, renderer render.Renderer, webServer web.Server, flasher flash.Flasher, buttonDriver buttons.Buttons) *App {
 	return &App{Store: store, Render: renderer, Web: webServer, Flash: flasher, Buttons: buttonDriver, Logger: NoopLogger{}, exitCh: make(chan error, 1)}
 }
@@ -59,6 +76,19 @@ func (app *App) Start(ctx context.Context) error {
 		app.exitCh = make(chan error, 1)
 	}
 	app.exitOnce.Store(false)
+
+	// Start web server (API today; UI later).
+	if app.Web != nil {
+		if err := app.Web.Start(ctx); err != nil {
+			app.Logger.Errorf("web", "server start error: %v", err)
+			return err
+		}
+		defer func() {
+			if err := app.Web.Stop(); err != nil {
+				app.Logger.Errorf("web", "server stop error: %v", err)
+			}
+		}()
+	}
 
 	app.Store.SetPhase(state.READY)
 	// Initialize renderer and draw first screen
@@ -185,7 +215,9 @@ func (app *App) SetScreen(screen render.Screen) error {
 }
 
 func (app *App) Stop() error {
-	// Stop subsystems in the future; for now no-op
+	if app.Web != nil {
+		return app.Web.Stop()
+	}
 	return nil
 }
 
