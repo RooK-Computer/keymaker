@@ -56,6 +56,7 @@ func (sr ShellRunner) Run(ctx context.Context, cmd string, args ...string) (stri
 	var outBuf, errBuf bytes.Buffer
 	command.Stdout = &outBuf
 	command.Stderr = &errBuf
+	sr.Logger.Infof("system", "executing cmd: sudo %s %v", cmd, args)
 	err := command.Run()
 	if err != nil {
 		// Include exit status if available
