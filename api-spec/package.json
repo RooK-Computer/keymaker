@@ -1,0 +1,8 @@
+{
+  "name": "keymaker-api-spec",
+  "private": true,
+  "description": "Offline API docs assets for Keymaker (Swagger UI)",
+  "devDependencies": {
+    "swagger-ui-dist": "^5.22.0"
+  }
+}

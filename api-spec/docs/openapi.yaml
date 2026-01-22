@@ -1,0 +1,348 @@
+openapi: 3.1.0
+info:
+  title: Rook Keymaker API
+  version: 1.0.0
+  summary: HTTP API for cartridge management and RetroPie ROM access.
+  description: |
+    This API is served by the Keymaker device.
+
+    Notes / constraints:
+    - The device runs from a RAM disk; uploads MUST be streamed and must not be buffered in memory.
+    - Requests that upload bytes MUST include Content-Length. Missing Content-Length is rejected.
+    - Some calls may implicitly mount/unmount the cartridge as needed.
+servers:
+  - url: /api/v1
+    description: API base
+
+tags:
+  - name: Cartridge
+  - name: RetroPie
+  - name: Flash
+
+paths:
+  /cartridgeinfo:
+    get:
+      tags: [Cartridge]
+      summary: Get cartridge info
+      operationId: getCartridgeInfo
+      responses:
+        "200":
+          description: Cartridge info snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CartridgeInfo"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /flash:
+    post:
+      tags: [Flash]
+      summary: Stream a compressed image to the cartridge block device
+      description: |
+        Streams the request body into a pipeline equivalent to: gunzip | dd ...
+
+        The request body is expected to be a gzip-compressed disk image (e.g. .img.gz).
+        The server will reject requests without Content-Length.
+      operationId: flashCartridge
+      requestBody:
+        required: true
+        content:
+          application/gzip:
+            schema:
+              $ref: "#/components/schemas/ByteStream"
+          application/octet-stream:
+            schema:
+              $ref: "#/components/schemas/ByteStream"
+      responses:
+        "202":
+          description: Flash started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "411":
+          $ref: "#/components/responses/LengthRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /retropie:
+    get:
+      tags: [RetroPie]
+      summary: List RetroPie systems
+      description: |
+        Returns the list of RetroPie ROM system directories.
+
+        The server may mount the cartridge if needed.
+      operationId: listRetroPieSystems
+      responses:
+        "200":
+          description: Systems list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /retropie/{system}:
+    get:
+      tags: [RetroPie]
+      summary: List games for a system
+      description: |
+        Lists files and directories under /home/pi/RetroPie/roms/{system}.
+
+        The server may mount the cartridge if needed.
+      operationId: listRetroPieGames
+      parameters:
+        - $ref: "#/components/parameters/System"
+      responses:
+        "200":
+          description: Games list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /retropie/{system}/{game}:
+    get:
+      tags: [RetroPie]
+      summary: Download a game (file or zipped folder)
+      description: |
+        Downloads a ROM/game from a RetroPie cartridge.
+
+        - If {game} refers to a directory, the server will zip the directory and return the zip.
+        - The response will include a Content-Disposition header so browsers download the file using a useful filename.
+
+        The server may mount the cartridge if needed.
+      operationId: downloadRetroPieGame
+      parameters:
+        - $ref: "#/components/parameters/System"
+        - $ref: "#/components/parameters/Game"
+      responses:
+        "200":
+          description: The requested game bytes
+          headers:
+            Content-Disposition:
+              description: Attachment with a useful filename
+              schema:
+                type: string
+              example: attachment; filename="mario.zip"
+          content:
+            application/octet-stream:
+              schema:
+                $ref: "#/components/schemas/ByteStream"
+            application/zip:
+              schema:
+                $ref: "#/components/schemas/ByteStream"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      tags: [RetroPie]
+      summary: Delete a game
+      description: |
+        Deletes a file or directory under /home/pi/RetroPie/roms/{system}/{game}.
+
+        The server may mount the cartridge if needed.
+      operationId: deleteRetroPieGame
+      parameters:
+        - $ref: "#/components/parameters/System"
+        - $ref: "#/components/parameters/Game"
+      responses:
+        "200":
+          description: Delete completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      tags: [RetroPie]
+      summary: Upload a game
+      description: |
+        Uploads a ROM/game to /home/pi/RetroPie/roms/{system}/{game}.
+
+        Zip detection:
+        - If {game} ends with .zip (case-insensitive), the server will treat the upload as a zip file and unpack it.
+        - After unpacking, the zip file is deleted.
+        - If the unpacked result contains a single top-level directory, its contents are moved up one level.
+
+        The server will reject requests without Content-Length.
+        The server may mount the cartridge if needed.
+      operationId: uploadRetroPieGame
+      parameters:
+        - $ref: "#/components/parameters/System"
+        - $ref: "#/components/parameters/Game"
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              $ref: "#/components/schemas/ByteStream"
+      responses:
+        "200":
+          description: Upload completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "411":
+          $ref: "#/components/responses/LengthRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /eject:
+    post:
+      tags: [Cartridge]
+      summary: Prepare cartridge for ejection
+      description: |
+        Prepares the cartridge for safe removal and triggers the UI to switch to the ejection screen.
+      operationId: ejectCartridge
+      responses:
+        "200":
+          description: Ejection initiated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  parameters:
+    System:
+      name: system
+      in: path
+      required: true
+      description: RetroPie system directory name
+      schema:
+        type: string
+        minLength: 1
+        pattern: "^[^/]+$"
+      example: snes
+    Game:
+      name: game
+      in: path
+      required: true
+      description: Game file or directory name
+      schema:
+        type: string
+        minLength: 1
+        pattern: "^[^/]+$"
+      example: mario.zip
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: Conflict / invalid state
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    LengthRequired:
+      description: Content-Length required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: length_required
+            message: Content-Length header is required
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    CartridgeInfo:
+      type: object
+      additionalProperties: false
+      properties:
+        present:
+          type: boolean
+        mounted:
+          type: boolean
+        isRetroPie:
+          type: boolean
+        systems:
+          type: array
+          items:
+            type: string
+        hasWorkCartridge:
+          type: boolean
+        busy:
+          type: boolean
+      required: [present, mounted, isRetroPie, systems, hasWorkCartridge, busy]
+
+    Ok:
+      type: object
+      additionalProperties: false
+      properties:
+        ok:
+          type: boolean
+      required: [ok]
+
+    Error:
+      type: object
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+          description: Short stable error code
+        message:
+          type: string
+          description: Human-readable error message
+      required: [error, message]
+
+    ByteStream:
+      description: Arbitrary bytes. This schema is used for streaming uploads/downloads.
+      type: string
+      format: binary
