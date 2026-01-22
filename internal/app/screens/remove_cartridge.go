@@ -3,6 +3,7 @@ package screens
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/rook-computer/keymaker/internal/render"
@@ -33,6 +34,9 @@ type RemoveCartridgeScreen struct {
 	RetryDelay     time.Duration
 
 	cancel context.CancelFunc
+
+	mu      sync.RWMutex
+	message string
 }
 
 func NewRemoveCartridgeScreen(runner system.Runner, logger Logger, app AppController) *RemoveCartridgeScreen {
@@ -42,6 +46,7 @@ func NewRemoveCartridgeScreen(runner system.Runner, logger Logger, app AppContro
 		App:            app,
 		TimeoutSeconds: 60,
 		RetryDelay:     500 * time.Millisecond,
+		message:        "preparing the system...",
 	}
 }
 
@@ -55,6 +60,8 @@ func (screen *RemoveCartridgeScreen) Start(ctx context.Context) error {
 
 	screenCtx, cancel := context.WithCancel(ctx)
 	screen.cancel = cancel
+
+	screen.setMessage("preparing the system...")
 
 	go func() {
 		// Enable lifeline before ejection (best-effort).
@@ -70,6 +77,8 @@ func (screen *RemoveCartridgeScreen) Start(ctx context.Context) error {
 			}
 			// Keep going: the wait loop will still retry and may succeed.
 		}
+
+		screen.setMessage("please remove cartridge")
 
 		for {
 			if err := system.WaitForEject(screenCtx, screen.Runner, screen.TimeoutSeconds); err == nil {
@@ -105,8 +114,20 @@ func (screen *RemoveCartridgeScreen) Stop() error {
 	return nil
 }
 
+func (screen *RemoveCartridgeScreen) setMessage(message string) {
+	screen.mu.Lock()
+	screen.message = message
+	screen.mu.Unlock()
+}
+
+func (screen *RemoveCartridgeScreen) getMessage() string {
+	screen.mu.RLock()
+	defer screen.mu.RUnlock()
+	return screen.message
+}
+
 func (screen *RemoveCartridgeScreen) Draw(drawer render.Drawer, currentState state.State) {
 	drawer.FillBackground()
 	drawer.DrawLogoCenteredTop()
-	drawer.DrawTextCentered("please remove cartridge")
+	drawer.DrawTextCentered(screen.getMessage())
 }

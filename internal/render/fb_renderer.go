@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"image/draw"
 	"image/png"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -342,16 +343,43 @@ func (renderer *FBRenderer) DrawLogoCenteredTop() {
 func (renderer *FBRenderer) DrawTextCentered(text string) {
 	canvasWidth, canvasHeight := renderer.Size()
 	style := TextStyle{Color: Foreground, Size: 48, Align: TextAlignCenter}
-	textMetrics := renderer.MeasureText(text, style)
-	margin := 40
-	baseline := 0
-	if renderer.lastLogoRect.Empty() || renderer.lastLogoRect.Max.Y <= 0 {
-		baseline = canvasHeight/2 + (textMetrics.Ascent / 2)
-	} else {
-		baseline = renderer.lastLogoRect.Max.Y + margin + textMetrics.Ascent
+	lines := strings.Split(text, "\n")
+	if len(lines) == 1 {
+		textMetrics := renderer.MeasureText(text, style)
+		margin := 40
+		baseline := 0
+		if renderer.lastLogoRect.Empty() || renderer.lastLogoRect.Max.Y <= 0 {
+			baseline = canvasHeight/2 + (textMetrics.Ascent / 2)
+		} else {
+			baseline = renderer.lastLogoRect.Max.Y + margin + textMetrics.Ascent
+		}
+		textTopY := baseline - textMetrics.Ascent
+		renderer.DrawText(text, canvasWidth/2, textTopY, style)
+		return
 	}
-	textTopY := baseline - textMetrics.Ascent
-	renderer.DrawText(text, canvasWidth/2, textTopY, style)
+
+	// Multiline: stack each line below the previous one.
+	// Use a consistent line height based on the current style.
+	lineMetrics := renderer.MeasureText("Ag", style)
+	lineHeight := lineMetrics.LineHeight
+	if lineHeight <= 0 {
+		lineHeight = lineMetrics.Height
+	}
+	if lineHeight <= 0 {
+		lineHeight = 1
+	}
+	blockHeight := lineHeight * len(lines)
+	margin := 40
+	startY := 0
+	if renderer.lastLogoRect.Empty() || renderer.lastLogoRect.Max.Y <= 0 {
+		startY = (canvasHeight / 2) - (blockHeight / 2)
+	} else {
+		startY = renderer.lastLogoRect.Max.Y + margin
+	}
+
+	for i, line := range lines {
+		renderer.DrawText(line, canvasWidth/2, startY+i*lineHeight, style)
+	}
 }
 
 // Helper: nearest-neighbor scale of src into dst rectangle on canvas.
