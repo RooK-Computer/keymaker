@@ -28,11 +28,13 @@ deps:
 
 # Regenerate offline API docs (OpenAPI YAML -> Swagger UI static folder)
 api-docs:
-	@echo "Generating offline Swagger UI docs under api-spec/docs"
+	@echo "Generating offline Swagger UI docs under docs/api"
 	@cd api-spec && npm ci
-	@rm -rf api-spec/docs
-	@mkdir -p api-spec/docs
-	@cp -r api-spec/node_modules/swagger-ui-dist/* api-spec/docs/
-	@cp api-spec/openapi.yaml api-spec/docs/openapi.yaml
-	@cp api-spec/swagger-ui-index.html api-spec/docs/index.html
-	@echo "Done: api-spec/docs/index.html"
+	@rm -rf docs/api
+	@mkdir -p docs/api
+	@cp -r api-spec/node_modules/swagger-ui-dist/* docs/api/
+	@cp api-spec/openapi.yaml docs/api/openapi.yaml
+	@cp api-spec/swagger-ui-index.html docs/api/index.html
+	@mkdir -p docs
+	@test -f docs/.nojekyll || : > docs/.nojekyll
+	@echo "Done: docs/api/index.html"
