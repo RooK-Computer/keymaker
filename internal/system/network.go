@@ -19,6 +19,14 @@ func WiFiIPv4(ctx context.Context, r Runner) (string, error) {
 	return strings.TrimSpace(stdout), nil
 }
 
+func WiFiSSID(ctx context.Context, r Runner) (string, error) {
+	stdout, stderr, err := r.Run(ctx, netInfoScript, "wifi-ssid")
+	if err != nil {
+		return "", fmt.Errorf("netinfo wifi-ssid failed: %v: %s", err, stderr)
+	}
+	return strings.TrimSpace(stdout), nil
+}
+
 func EthernetIPv4(ctx context.Context, r Runner) (string, error) {
 	stdout, stderr, err := r.Run(ctx, netInfoScript, "ethernet-ip")
 	if err != nil {

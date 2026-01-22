@@ -102,7 +102,14 @@ func (screen *WiFiSetupScreen) Start(ctx context.Context) error {
 			}
 		}
 
-		screen.App.Exit(nil)
+		nextScreen := &MainScreen{}
+		if err := screen.App.SetScreen(nextScreen); err != nil {
+			if screen.Logger != nil {
+				screen.Logger.Errorf("app", "failed to switch to main screen: %v", err)
+			}
+			screen.App.Exit(err)
+			return
+		}
 	}()
 
 	return nil

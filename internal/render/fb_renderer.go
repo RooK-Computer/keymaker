@@ -24,13 +24,14 @@ import (
 
 // FBRenderer renders to the Linux framebuffer using an offscreen logical canvas.
 type FBRenderer struct {
-	fbDev        *fb.Device
-	canvas       *image.RGBA
-	fontFace     font.Face
-	otFont       *opentype.Font
-	faceCache    map[int]font.Face
-	ttFont       *truetype.Font
-	logo         image.Image
+	fbDev     *fb.Device
+	canvas    *image.RGBA
+	fontFace  font.Face
+	otFont    *opentype.Font
+	faceCache map[int]font.Face
+	ttFont    *truetype.Font
+	// Logo is decoded once from embedded assets and can be reused by screens.
+	Logo         image.Image
 	running      atomic.Bool
 	current      Screen
 	lastLogoRect image.Rectangle
@@ -93,7 +94,7 @@ func (renderer *FBRenderer) Start(ctx context.Context) error {
 				renderer.Logger.Errorf("fb", "logo load failed: %v", logoErr)
 			}
 		} else {
-			renderer.logo = logoImage
+			renderer.Logo = logoImage
 			if renderer.Logger != nil {
 				renderer.Logger.Infof("fb", "logo loaded")
 			}
@@ -317,13 +318,13 @@ func (renderer *FBRenderer) DrawImageInRect(img image.Image, destinationRect ima
 }
 
 func (renderer *FBRenderer) DrawLogoCenteredTop() {
-	if renderer.logo == nil {
+	if renderer.Logo == nil {
 		return
 	}
 	canvasWidth, canvasHeight := renderer.Size()
 	// Limit logo to 25% of canvas width.
 	maxLogoWidth := int(float64(canvasWidth) * 0.25)
-	logoWidth, logoHeight := renderer.logo.Bounds().Dx(), renderer.logo.Bounds().Dy()
+	logoWidth, logoHeight := renderer.Logo.Bounds().Dx(), renderer.Logo.Bounds().Dy()
 	if logoWidth <= 0 || logoHeight <= 0 {
 		return
 	}
@@ -337,7 +338,7 @@ func (renderer *FBRenderer) DrawLogoCenteredTop() {
 	destY := (canvasHeight-scaledLogoHeight)/2 - (scaledLogoHeight / 4)
 	logoRect := image.Rect(destX, destY, destX+scaledLogoWidth, destY+scaledLogoHeight)
 	renderer.lastLogoRect = logoRect
-	renderer.DrawImageInRect(renderer.logo, logoRect, ScaleModeStretch)
+	renderer.DrawImageInRect(renderer.Logo, logoRect, ScaleModeStretch)
 }
 
 func (renderer *FBRenderer) DrawTextCentered(text string) {

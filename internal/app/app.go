@@ -102,6 +102,63 @@ func (app *App) Start(ctx context.Context) error {
 		app.Render.RunLoop(loopCtx, app.Store)
 	}()
 
+	// Periodically refresh network-related state (SSID/IP) for the main screen.
+	// This uses netinfo.sh via the system runner and caches results in the store.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		refresh := func() {
+			snap := app.Store.Snapshot()
+
+			wifiSSID, ssidErr := system.WiFiSSID(loopCtx, runner)
+			if ssidErr != nil {
+				app.Logger.Errorf("system", "netinfo wifi-ssid failed: %v", ssidErr)
+			}
+
+			wifiIP, wifiErr := system.WiFiIPv4(loopCtx, runner)
+			if wifiErr != nil {
+				app.Logger.Errorf("system", "netinfo wifi-ip failed: %v", wifiErr)
+			}
+
+			ethernetIP, ethernetErr := system.EthernetIPv4(loopCtx, runner)
+			if ethernetErr != nil {
+				app.Logger.Errorf("system", "netinfo ethernet-ip failed: %v", ethernetErr)
+			}
+
+			preferredIP := wifiIP
+			if preferredIP == "" {
+				preferredIP = ethernetIP
+			}
+			url := ""
+			if preferredIP != "" {
+				url = "http://" + preferredIP
+			}
+
+			network := snap.Network
+			network.IP = preferredIP
+			network.URL = url
+			network.URLQR = url
+			app.Store.UpdateNetwork(network)
+
+			wifi := snap.WiFi
+			wifi.SSID = wifiSSID
+			app.Store.UpdateWiFi(wifi)
+		}
+
+		refresh()
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-loopCtx.Done():
+				return
+			case <-ticker.C:
+				refresh()
+			}
+		}
+	}()
+
 	// Wait for completion (requested by a screen), then exit.
 	var err error
 	select {
