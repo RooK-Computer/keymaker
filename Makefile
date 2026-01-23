@@ -11,7 +11,8 @@ WEBAPP_SOURCES := $(shell find $(WEBAPP_DIR)/src -type f -print) \
 	$(WEBAPP_DIR)/tsconfig.json \
 	$(WEBAPP_DIR)/tsconfig.node.json \
 	$(WEBAPP_DIR)/package.json \
-	$(WEBAPP_DIR)/package-lock.json
+	$(WEBAPP_DIR)/package-lock.json \
+	api-spec/openapi.yaml
 
 .PHONY: all build clean run test-build deps api-docs
 
