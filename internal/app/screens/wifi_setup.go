@@ -48,12 +48,20 @@ func (screen *WiFiSetupScreen) Start(ctx context.Context) error {
 		wifiConfig := state.GetWiFiConfig()
 		snapshot := wifiConfig.Snapshot()
 
+		requestNetworkRefresh := func() {
+			type refresher interface{ RequestNetworkRefresh() }
+			if r, ok := screen.App.(refresher); ok {
+				r.RequestNetworkRefresh()
+			}
+		}
+
 		// If WiFi is already configured in our in-memory state, do not attempt
 		// to reconfigure/restart WiFi here. This screen is shown after cartridge
 		// insertion; during eject flows we want to proceed immediately.
 		configured := snapshot.Initialized && (snapshot.Mode == state.WiFiModeHotspot || (snapshot.Mode == state.WiFiModeJoin && strings.TrimSpace(snapshot.SSID) != ""))
 		if configured && !snapshot.NeedsApply {
 			screen.setMessage("wifi already configured")
+			requestNetworkRefresh()
 			nextScreen := &MainScreen{}
 			if err := screen.App.SetScreen(nextScreen); err != nil {
 				if screen.Logger != nil {
@@ -100,6 +108,7 @@ func (screen *WiFiSetupScreen) Start(ctx context.Context) error {
 					return
 				}
 				wifiConfig.MarkApplied()
+				requestNetworkRefresh()
 			case state.WiFiModeJoin:
 				if err := system.JoinWiFi(screenCtx, screen.Runner, snapshot.SSID, snapshot.Password); err != nil {
 					if screen.Logger != nil {
@@ -109,6 +118,7 @@ func (screen *WiFiSetupScreen) Start(ctx context.Context) error {
 					return
 				}
 				wifiConfig.MarkApplied()
+				requestNetworkRefresh()
 			default:
 				// Safety fallback: if mode is still unknown, attempt hotspot.
 				wifiConfig.SetHotspot()
@@ -120,8 +130,12 @@ func (screen *WiFiSetupScreen) Start(ctx context.Context) error {
 					return
 				}
 				wifiConfig.MarkApplied()
+				requestNetworkRefresh()
 			}
 		}
+
+		// Even when we didn't change WiFi (e.g. network already up), refresh cached values.
+		requestNetworkRefresh()
 
 		nextScreen := &MainScreen{}
 		if err := screen.App.SetScreen(nextScreen); err != nil {

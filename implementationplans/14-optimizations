@@ -22,6 +22,8 @@ The webapp lists the systems and games in order of reporting from the API. the w
 
 We noticed that downloading games is taking very long. That might have something to do with bad hardware design, but we should check the software for bottlenecks. we noticed those wifi cutouts as well while working on the same machine over ssh. maybe were bottle-necking the cpu.
 
+We did check the load of the system while the main screen is visible and noticed that way more threads of keymaker were running and actively using the cpu than we anticipated. We thought that 2 processes should show up. instead it was constantly between 4 and 6. the load of the system reached 3. We have to re-evaluate the implementation of the main screen. something is off.
+
 ## Problem 4: API spec differs from reality
 
 currently, when the cartridge is not detected as retropie, the systems property will be set to null, which crashes the webapp. Update api spec to allow null and fix webapp to handle that situation correctly.
@@ -29,6 +31,7 @@ currently, when the cartridge is not detected as retropie, the systems property 
 ## Problem 5: key combination to exit
 
 There is no way to exit the app, which is needed for debugging. Please implement a clean exit upon pressing F4.
+Now hats implemented, its not working on the main screen. F4 is not doing anything.
 
 ## Problem 6: wifi setup screen not reacting correctly
 
@@ -37,3 +40,5 @@ The wifi screen should not do anything if the wifi setup is in configured state 
 ## Problem 7: main screen stay empty for long time
 
 when the main screen is shown for the first itme, it doesn't show any data for a long time (15 seconds maybe). We guess its the qr code generation that holds everything up. It would be better to update all texts and show the QR codes once they are ready.
+
+While we already tried fixing that, there is no change on the main screen. it still shows no data for a few seconds, then shows the info and almost immediately afterwards shows the qr codes.

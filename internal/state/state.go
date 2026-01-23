@@ -43,10 +43,28 @@ type State struct {
 type Store struct {
 	mu    sync.RWMutex
 	state State
+	ch    chan struct{}
 }
 
 func NewStore() *Store {
-	return &Store{state: State{Phase: BOOTING}}
+	return &Store{state: State{Phase: BOOTING}, ch: make(chan struct{}, 1)}
+}
+
+// Changes returns a channel that is notified (best-effort) whenever the state changes.
+// Notifications are coalesced; receivers should call Snapshot() to read the latest state.
+func (store *Store) Changes() <-chan struct{} {
+	return store.ch
+}
+
+func (store *Store) notifyChange() {
+	if store.ch == nil {
+		return
+	}
+	select {
+	case store.ch <- struct{}{}:
+	default:
+		// Coalesce notifications.
+	}
 }
 
 func (store *Store) Snapshot() State {
@@ -59,22 +77,26 @@ func (store *Store) SetPhase(phase Phase) {
 	store.mu.Lock()
 	store.state.Phase = phase
 	store.mu.Unlock()
+	store.notifyChange()
 }
 
 func (store *Store) UpdateWiFi(wifi WiFiInfo) {
 	store.mu.Lock()
 	store.state.WiFi = wifi
 	store.mu.Unlock()
+	store.notifyChange()
 }
 
 func (store *Store) UpdateNetwork(network NetworkInfo) {
 	store.mu.Lock()
 	store.state.Network = network
 	store.mu.Unlock()
+	store.notifyChange()
 }
 
 func (store *Store) UpdateFlash(flash FlashInfo) {
 	store.mu.Lock()
 	store.state.Flash = flash
 	store.mu.Unlock()
+	store.notifyChange()
 }

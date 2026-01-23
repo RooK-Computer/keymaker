@@ -28,10 +28,25 @@ type App struct {
 	Debug   bool
 	baseCtx context.Context
 
+	netRefreshCh chan struct{}
+
 	currentScreen render.Screen
 
 	exitOnce atomic.Bool
 	exitCh   chan error
+}
+
+// RequestNetworkRefresh triggers a best-effort immediate refresh of network-related state.
+// It is safe to call from screens; requests are coalesced.
+func (app *App) RequestNetworkRefresh() {
+	ch := app.netRefreshCh
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
 }
 
 // HandleEject is used by the web API to switch to the ejection screen.
@@ -80,6 +95,10 @@ func (app *App) Start(ctx context.Context) error {
 	// Debug/escape hatch: allow clean shutdown via keyboard (F4).
 	// Best-effort; if no evdev devices exist on the target, this is a no-op.
 	system.StartExitOnF4(ctx, app.Logger, func() { app.Exit(nil) })
+
+	if app.netRefreshCh == nil {
+		app.netRefreshCh = make(chan struct{}, 1)
+	}
 
 	// Start web server (API today; UI later).
 	if app.Web != nil {
@@ -187,6 +206,8 @@ func (app *App) Start(ctx context.Context) error {
 			select {
 			case <-loopCtx.Done():
 				return
+			case <-app.netRefreshCh:
+				refresh()
 			case <-ticker.C:
 				refresh()
 			}
@@ -215,7 +236,11 @@ func (app *App) SetScreen(screen render.Screen) error {
 	if baseCtx == nil {
 		baseCtx = context.Background()
 	}
-	return screen.Start(baseCtx)
+	err := screen.Start(baseCtx)
+	// When the render loop is event-driven, switching screens should trigger
+	// an immediate redraw even if the state hasn't changed.
+	app.Render.RedrawWithState(app.Store.Snapshot())
+	return err
 }
 
 func (app *App) Stop() error {

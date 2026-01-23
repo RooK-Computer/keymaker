@@ -148,20 +148,34 @@ func (renderer *FBRenderer) RedrawWithState(snap state.State) {
 
 // RunLoop continuously redraws at ~30 FPS until the context is done.
 func (renderer *FBRenderer) RunLoop(ctx context.Context, store *state.Store) {
-	ticker := time.NewTicker(time.Second / 30)
+	// The framebuffer blit is expensive; redraw only when state changes.
+	// Also cap the redraw rate to avoid burning CPU during rapid updates (e.g. flashing).
+	const maxFPS = 10
+	const heartbeatEvery = 2 * time.Second
+
+	ticker := time.NewTicker(time.Second / maxFPS)
 	defer ticker.Stop()
-	lastLog := time.Now()
+	heartbeat := time.NewTicker(heartbeatEvery)
+	defer heartbeat.Stop()
+
+	dirty := true
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-store.Changes():
+			dirty = true
+		case <-heartbeat.C:
+			// Allow screens to update based on internal async work (e.g. QR generation)
+			// even when the state hasn't changed.
+			dirty = true
 		case <-ticker.C:
+			if !dirty {
+				continue
+			}
 			snap := store.Snapshot()
 			renderer.RedrawWithState(snap)
-			if renderer.Logger != nil && time.Since(lastLog) > time.Second {
-				renderer.Logger.Infof("fb", "heartbeat frame, phase=%d", snap.Phase)
-				lastLog = time.Now()
-			}
+			dirty = false
 		}
 	}
 }
