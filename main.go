@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"syscall"
 	"time"
 
 	"github.com/rook-computer/keymaker/internal/app"
@@ -15,28 +14,6 @@ import (
 	"github.com/rook-computer/keymaker/internal/state"
 	"github.com/rook-computer/keymaker/internal/web"
 )
-
-func redirectStdIO(path string) error {
-	if path == "" {
-		return nil
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return err
-	}
-	// Duplicate the file descriptor onto stdout/stderr so panics and all prints
-	// (including from other goroutines) end up in the file.
-	if err := syscall.Dup2(int(f.Fd()), int(os.Stdout.Fd())); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := syscall.Dup2(int(f.Fd()), int(os.Stderr.Fd())); err != nil {
-		_ = f.Close()
-		return err
-	}
-	_ = f.Close()
-	return nil
-}
 
 func main() {
 	fmt.Println("Keymaker starting (skeleton)")
