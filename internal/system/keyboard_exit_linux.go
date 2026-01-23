@@ -64,17 +64,9 @@ func StartExitOnF4(ctx context.Context, logger keyboardExitLogger, onExit func()
 	for _, path := range paths {
 		p := path
 		go func() {
-			fd, err := unix.Open(p, unix.O_RDONLY|unix.O_NONBLOCK, 0)
-			if err != nil {
-				return
-			}
-			f := os.NewFile(uintptr(fd), p)
-			defer func() {
-				_ = f.Close()
-			}()
-
+			// Resiliency: evdev devices can be transient or return errors.
+			// Keep retrying until the app context is canceled.
 			buf := make([]byte, 4096)
-
 			for {
 				select {
 				case <-ctx.Done():
@@ -82,41 +74,71 @@ func StartExitOnF4(ctx context.Context, logger keyboardExitLogger, onExit func()
 				default:
 				}
 
-				pollFds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
-				_, pollErr := unix.Poll(pollFds, 250)
-				if pollErr != nil {
-					// Device might have gone away.
-					return
-				}
-				if pollFds[0].Revents&unix.POLLIN == 0 {
+				fd, err := unix.Open(p, unix.O_RDONLY|unix.O_NONBLOCK, 0)
+				if err != nil {
+					// Device may not exist yet or permissions may fluctuate.
+					time.Sleep(500 * time.Millisecond)
 					continue
 				}
+				f := os.NewFile(uintptr(fd), p)
 
-				n, readErr := unix.Read(fd, buf)
-				if readErr != nil {
-					if readErr == unix.EAGAIN || readErr == unix.EINTR {
-						continue
+				err = func() error {
+					defer func() { _ = f.Close() }()
+					for {
+						select {
+						case <-ctx.Done():
+							return ctx.Err()
+						default:
+						}
+
+						pollFds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+						_, pollErr := unix.Poll(pollFds, 250)
+						if pollErr != nil {
+							return pollErr
+						}
+						if pollFds[0].Revents&unix.POLLIN == 0 {
+							continue
+						}
+
+						n, readErr := unix.Read(fd, buf)
+						if readErr != nil {
+							if readErr == unix.EAGAIN || readErr == unix.EINTR {
+								continue
+							}
+							return readErr
+						}
+						if n < eventSize {
+							continue
+						}
+
+						// Parse as a sequence of input_event records.
+						for off := 0; off+eventSize <= n; off += eventSize {
+							rec := buf[off : off+eventSize]
+							// type and code are immediately after timeval.
+							typ := binary.LittleEndian.Uint16(rec[tvSize : tvSize+2])
+							code := binary.LittleEndian.Uint16(rec[tvSize+2 : tvSize+4])
+							value := int32(binary.LittleEndian.Uint32(rec[tvSize+4 : tvSize+8]))
+							if typ == evKey && code == keyF4 && value == 1 {
+								triggerExit()
+								// Give the app a moment to unwind; then stop reading.
+								time.Sleep(50 * time.Millisecond)
+								return nil
+							}
+						}
 					}
+				}()
+
+				if err == nil {
+					// Exit was requested.
 					return
 				}
-				if n < eventSize {
-					continue
+				if ctx.Err() != nil {
+					return
 				}
-
-				// Parse as a sequence of input_event records.
-				for off := 0; off+eventSize <= n; off += eventSize {
-					rec := buf[off : off+eventSize]
-					// type and code are immediately after timeval.
-					typ := binary.LittleEndian.Uint16(rec[tvSize : tvSize+2])
-					code := binary.LittleEndian.Uint16(rec[tvSize+2 : tvSize+4])
-					value := int32(binary.LittleEndian.Uint32(rec[tvSize+4 : tvSize+8]))
-					if typ == evKey && code == keyF4 && value == 1 {
-						triggerExit()
-						// Give the app a moment to unwind; then stop reading.
-						time.Sleep(50 * time.Millisecond)
-						return
-					}
+				if logger != nil {
+					logger.Errorf("input", "evdev F4 watcher stopped for %s: %v (retrying)", p, err)
 				}
+				time.Sleep(500 * time.Millisecond)
 			}
 		}()
 	}
@@ -132,23 +154,6 @@ func StartExitOnF4TTY(ctx context.Context, logger keyboardExitLogger, onExit fun
 		return
 	}
 
-	f, shouldClose := openTTYForRead(logger)
-	if f == nil {
-		return
-	}
-
-	fd := int(f.Fd())
-	oldState, ok := makeRaw(fd)
-	if !ok {
-		if shouldClose {
-			_ = f.Close()
-		}
-		if logger != nil {
-			logger.Infof("input", "tty F4 watcher disabled (termios unavailable)")
-		}
-		return
-	}
-
 	var once sync.Once
 	triggerExit := func() {
 		once.Do(func() {
@@ -160,13 +165,8 @@ func StartExitOnF4TTY(ctx context.Context, logger keyboardExitLogger, onExit fun
 	}
 
 	go func() {
-		defer func() {
-			_ = restoreTermios(fd, oldState)
-			if shouldClose {
-				_ = f.Close()
-			}
-		}()
-
+		// Resiliency: the underlying TTY can change or temporarily error.
+		// Re-open and re-apply raw mode on failure.
 		buf := make([]byte, 64)
 		var window []byte
 
@@ -177,35 +177,82 @@ func StartExitOnF4TTY(ctx context.Context, logger keyboardExitLogger, onExit fun
 			default:
 			}
 
-			pollFds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
-			_, pollErr := unix.Poll(pollFds, 250)
-			if pollErr != nil {
-				return
-			}
-			if pollFds[0].Revents&unix.POLLIN == 0 {
+			f, shouldClose := openTTYForRead(logger)
+			if f == nil {
+				time.Sleep(750 * time.Millisecond)
 				continue
 			}
-
-			n, readErr := unix.Read(fd, buf)
-			if readErr != nil {
-				if readErr == unix.EAGAIN || readErr == unix.EINTR {
-					continue
+			fd := int(f.Fd())
+			oldState, ok := makeRaw(fd)
+			if !ok {
+				if shouldClose {
+					_ = f.Close()
 				}
-				return
-			}
-			if n <= 0 {
+				if logger != nil {
+					logger.Errorf("input", "tty F4 watcher: termios unavailable (retrying)")
+				}
+				time.Sleep(750 * time.Millisecond)
 				continue
 			}
 
-			window = append(window, buf[:n]...)
-			if len(window) > 32 {
-				window = window[len(window)-32:]
-			}
+			window = window[:0]
+			err := func() error {
+				defer func() {
+					_ = restoreTermios(fd, oldState)
+					if shouldClose {
+						_ = f.Close()
+					}
+				}()
 
-			if containsF4Sequence(window) {
-				triggerExit()
+				for {
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					default:
+					}
+
+					pollFds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+					_, pollErr := unix.Poll(pollFds, 250)
+					if pollErr != nil {
+						return pollErr
+					}
+					if pollFds[0].Revents&unix.POLLIN == 0 {
+						continue
+					}
+
+					n, readErr := unix.Read(fd, buf)
+					if readErr != nil {
+						if readErr == unix.EAGAIN || readErr == unix.EINTR {
+							continue
+						}
+						return readErr
+					}
+					if n <= 0 {
+						continue
+					}
+
+					window = append(window, buf[:n]...)
+					if len(window) > 32 {
+						window = window[len(window)-32:]
+					}
+
+					if containsF4Sequence(window) {
+						triggerExit()
+						return nil
+					}
+				}
+			}()
+
+			if err == nil {
 				return
 			}
+			if ctx.Err() != nil {
+				return
+			}
+			if logger != nil {
+				logger.Errorf("input", "tty F4 watcher stopped: %v (retrying)", err)
+			}
+			time.Sleep(500 * time.Millisecond)
 		}
 	}()
 }
