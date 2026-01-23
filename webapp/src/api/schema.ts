@@ -159,7 +159,8 @@ export interface components {
             present: boolean;
             mounted: boolean;
             isRetroPie: boolean;
-            systems: string[];
+            /** @description RetroPie ROM system directories (null if not a RetroPie cartridge) */
+            systems: string[] | null;
             busy: boolean;
         };
         Ok: {

@@ -313,7 +313,8 @@ components:
         isRetroPie:
           type: boolean
         systems:
-          type: array
+          description: RetroPie ROM system directories (null if not a RetroPie cartridge)
+          type: [array, "null"]
           items:
             type: string
         busy:

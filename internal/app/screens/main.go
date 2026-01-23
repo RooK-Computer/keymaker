@@ -4,6 +4,7 @@ import (
 	"context"
 	"image"
 	"strings"
+	"sync"
 
 	"github.com/rook-computer/keymaker/internal/render"
 	"github.com/rook-computer/keymaker/internal/render/layout"
@@ -11,20 +12,143 @@ import (
 )
 
 type MainScreen struct {
-	lastHotspotQRPayload string
-	hotspotQRImage       image.Image
+	lastHotspotQRPayload      string
+	hotspotQRImage            image.Image
+	requestedHotspotQRPayload string
 
-	lastURLQRPayload string
-	urlQRImage       image.Image
+	lastURLQRPayload      string
+	urlQRImage            image.Image
+	requestedURLQRPayload string
+
+	qrReqCh chan qrRequest
+	qrResCh chan qrResult
+	qrStop  context.CancelFunc
+
+	mu sync.Mutex
+}
+
+type qrRequest struct {
+	kind    string
+	payload string
+	size    int
+}
+
+type qrResult struct {
+	kind    string
+	payload string
+	img     image.Image
+	err     error
 }
 
 func (screen *MainScreen) Start(ctx context.Context) error {
+	screen.mu.Lock()
+	defer screen.mu.Unlock()
+
+	// Lazily start a single worker for this screen instance.
+	if screen.qrReqCh != nil {
+		return nil
+	}
+
+	workerCtx, cancel := context.WithCancel(ctx)
+	screen.qrStop = cancel
+	screen.qrReqCh = make(chan qrRequest, 8)
+	screen.qrResCh = make(chan qrResult, 8)
+
+	go func() {
+		for {
+			select {
+			case <-workerCtx.Done():
+				return
+			case req := <-screen.qrReqCh:
+				img, err := render.GenerateQRCodeImage(req.payload, req.size)
+				select {
+				case screen.qrResCh <- qrResult{kind: req.kind, payload: req.payload, img: img, err: err}:
+				case <-workerCtx.Done():
+					return
+				}
+			}
+		}
+	}()
 	return nil
 }
 
-func (screen *MainScreen) Stop() error { return nil }
+func (screen *MainScreen) Stop() error {
+	screen.mu.Lock()
+	stop := screen.qrStop
+	screen.qrStop = nil
+	screen.qrReqCh = nil
+	screen.qrResCh = nil
+	screen.requestedHotspotQRPayload = ""
+	screen.requestedURLQRPayload = ""
+	screen.mu.Unlock()
+
+	if stop != nil {
+		stop()
+	}
+	return nil
+}
+
+func (screen *MainScreen) drainQRResults() {
+	screen.mu.Lock()
+	resCh := screen.qrResCh
+	requestedHotspot := screen.requestedHotspotQRPayload
+	requestedURL := screen.requestedURLQRPayload
+	screen.mu.Unlock()
+
+	if resCh == nil {
+		return
+	}
+
+	for {
+		select {
+		case res := <-resCh:
+			if res.err != nil {
+				// Ignore; keep previous image if any.
+				continue
+			}
+
+			screen.mu.Lock()
+			switch res.kind {
+			case "hotspot":
+				if res.payload == requestedHotspot {
+					screen.hotspotQRImage = res.img
+					screen.lastHotspotQRPayload = res.payload
+					screen.requestedHotspotQRPayload = ""
+				}
+			case "url":
+				if res.payload == requestedURL {
+					screen.urlQRImage = res.img
+					screen.lastURLQRPayload = res.payload
+					screen.requestedURLQRPayload = ""
+				}
+			}
+			screen.mu.Unlock()
+		default:
+			return
+		}
+	}
+}
+
+func (screen *MainScreen) requestQR(kind, payload string, size int) {
+	screen.mu.Lock()
+	reqCh := screen.qrReqCh
+	screen.mu.Unlock()
+
+	if reqCh == nil {
+		return
+	}
+
+	select {
+	case reqCh <- qrRequest{kind: kind, payload: payload, size: size}:
+	default:
+		// If queue is full, skip this frame; we'll retry next draw.
+	}
+}
 
 func (screen *MainScreen) Draw(drawer render.Drawer, currentState state.State) {
+	// Apply any completed QR results without blocking rendering.
+	screen.drainQRResults()
+
 	drawer.FillBackground()
 
 	canvasWidth, canvasHeight := drawer.Size()
@@ -81,20 +205,38 @@ func (screen *MainScreen) drawWiFi(drawer render.Drawer, rect image.Rectangle, c
 		y += drawer.MeasureText("Hotspot: ", bodyStyle).LineHeight + 10
 
 		payload := buildOpenWiFiQRPayload(ssid)
-		if payload != "" && payload != screen.lastHotspotQRPayload {
-			qrImage, err := render.GenerateQRCodeImage(payload, 512)
-			if err == nil {
-				screen.hotspotQRImage = qrImage
-				screen.lastHotspotQRPayload = payload
-			}
+		if payload == "" {
+			screen.mu.Lock()
+			screen.hotspotQRImage = nil
+			screen.lastHotspotQRPayload = ""
+			screen.requestedHotspotQRPayload = ""
+			screen.mu.Unlock()
+			return
 		}
 
-		if screen.hotspotQRImage != nil {
+		screen.mu.Lock()
+		needRequest := payload != screen.lastHotspotQRPayload && payload != screen.requestedHotspotQRPayload
+		if needRequest {
+			screen.requestedHotspotQRPayload = payload
+		}
+		hasImage := screen.hotspotQRImage != nil && screen.lastHotspotQRPayload == payload
+		screen.mu.Unlock()
+
+		if needRequest {
+			screen.requestQR("hotspot", payload, 512)
+		}
+
+		if hasImage {
 			// Use remaining space below text for the QR code.
 			qrRect := image.Rect(rect.Min.X, y, rect.Max.X, rect.Max.Y)
 			qrRect = layout.Inset(qrRect, 8)
 			qrRect = layout.FitSquare(qrRect)
-			drawer.DrawImageInRect(screen.hotspotQRImage, qrRect, render.ScaleModeFit)
+			screen.mu.Lock()
+			img := screen.hotspotQRImage
+			screen.mu.Unlock()
+			drawer.DrawImageInRect(img, qrRect, render.ScaleModeFit)
+		} else {
+			drawer.DrawText("Generating QR…", rect.Min.X, y, bodyStyle)
 		}
 		return
 	}
@@ -141,22 +283,39 @@ func (screen *MainScreen) drawIP(drawer render.Drawer, rect image.Rectangle, cur
 	if payload == "" {
 		payload = url
 	}
-	if payload != "" && payload != screen.lastURLQRPayload {
-		qrImage, err := render.GenerateQRCodeImage(payload, 512)
-		if err == nil {
-			screen.urlQRImage = qrImage
-			screen.lastURLQRPayload = payload
-		}
+	if payload == "" {
+		screen.mu.Lock()
+		screen.urlQRImage = nil
+		screen.lastURLQRPayload = ""
+		screen.requestedURLQRPayload = ""
+		screen.mu.Unlock()
+		return
 	}
 
-	if screen.urlQRImage == nil {
+	screen.mu.Lock()
+	needRequest := payload != screen.lastURLQRPayload && payload != screen.requestedURLQRPayload
+	if needRequest {
+		screen.requestedURLQRPayload = payload
+	}
+	hasImage := screen.urlQRImage != nil && screen.lastURLQRPayload == payload
+	screen.mu.Unlock()
+
+	if needRequest {
+		screen.requestQR("url", payload, 512)
+	}
+
+	if !hasImage {
+		drawer.DrawText("Generating QR…", rect.Min.X, y, bodyStyle)
 		return
 	}
 
 	qrRect := image.Rect(rect.Min.X, y, rect.Max.X, rect.Max.Y)
 	qrRect = layout.Inset(qrRect, 8)
 	qrRect = layout.FitSquare(qrRect)
-	drawer.DrawImageInRect(screen.urlQRImage, qrRect, render.ScaleModeFit)
+	screen.mu.Lock()
+	img := screen.urlQRImage
+	screen.mu.Unlock()
+	drawer.DrawImageInRect(img, qrRect, render.ScaleModeFit)
 }
 
 func (screen *MainScreen) drawCartridge(drawer render.Drawer, rect image.Rectangle) {

@@ -77,6 +77,10 @@ func (app *App) Start(ctx context.Context) error {
 	}
 	app.exitOnce.Store(false)
 
+	// Debug/escape hatch: allow clean shutdown via keyboard (F4).
+	// Best-effort; if no evdev devices exist on the target, this is a no-op.
+	system.StartExitOnF4(ctx, app.Logger, func() { app.Exit(nil) })
+
 	// Start web server (API today; UI later).
 	if app.Web != nil {
 		if err := app.Web.Start(ctx); err != nil {

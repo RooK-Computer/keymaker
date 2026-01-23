@@ -279,7 +279,7 @@ export function MainView({ pollIntervalMs = 1000, onManageRetroPieClick }: MainV
             <dd>{String(currentInfo.isRetroPie)}</dd>
 
             <dt>Systems</dt>
-            <dd>{currentInfo.systems.length ? currentInfo.systems.join(', ') : '(none)'}</dd>
+            <dd>{(currentInfo.systems ?? []).length ? (currentInfo.systems ?? []).join(', ') : '(none)'}</dd>
           </dl>
         )}
 

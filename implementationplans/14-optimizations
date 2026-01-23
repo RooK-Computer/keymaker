@@ -1,0 +1,39 @@
+# Rook Cartridge Writer Assistant, Implementation Plan 14: bugfixing
+
+The software we're going to build here will be run on a custom retro gaming console which utilizes cartridges.
+It is built on Raspberry PI CM4 Modules and the cartridges are essentially SD Card slots. 
+It will be put into a cartridge which copies itself into RAM. Afterwards the user can install a cartridge he wants to change the contents of.
+More details will be added lateron.
+
+This implementation plan has a heritage; all prior ones are considered common knowldege.
+It is important to keep one thing in mind when writing code: its not for the machines, its for humans. Keep that in mind, and thus refrain using single-character variable names. Instead come up with useful names for the variables.
+
+We have tested the app and found a few bugs that need to be fixed. This plan is in place to fix them.
+
+## Problem 1: is_sd_mounted.sh reports wrong results
+
+is_sd_mounted.sh relies on findmnt to check if the cartridge is mounted. however... findmnt will report the root fs if the cartridge is not mounted, which the script interprets as "mounted". That sets a few checks up for failure. The script needs to be reworked to correctly identify wether the cartridge is mounted or not.
+
+## Problem 2: webapp: order of systems and games in systems
+
+The webapp lists the systems and games in order of reporting from the API. the webapp should reorder everything alphabetically.
+
+## Problem 3: performance of the wifi connection
+
+We noticed that downloading games is taking very long. That might have something to do with bad hardware design, but we should check the software for bottlenecks. we noticed those wifi cutouts as well while working on the same machine over ssh. maybe were bottle-necking the cpu.
+
+## Problem 4: API spec differs from reality
+
+currently, when the cartridge is not detected as retropie, the systems property will be set to null, which crashes the webapp. Update api spec to allow null and fix webapp to handle that situation correctly.
+
+## Problem 5: key combination to exit
+
+There is no way to exit the app, which is needed for debugging. Please implement a clean exit upon pressing F4.
+
+## Problem 6: wifi setup screen not reacting correctly
+
+The wifi screen should not do anything if the wifi setup is in configured state according to the state object storing all the data. But it does so during an eject of the cartridge: it takes too long to detect that there is nothing to do.
+
+## Problem 7: main screen stay empty for long time
+
+when the main screen is shown for the first itme, it doesn't show any data for a long time (15 seconds maybe). We guess its the qr code generation that holds everything up. It would be better to update all texts and show the QR codes once they are ready.

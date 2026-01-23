@@ -7,6 +7,12 @@ import {
   uploadRetroPieGame
 } from '../api';
 
+const nameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+function sortNames(values: string[]): string[] {
+  return [...values].sort(nameCollator.compare);
+}
+
 type RetroPieViewState =
   | { kind: 'loading' }
   | { kind: 'ready'; systems: string[] }
@@ -103,11 +109,11 @@ export function RetroPieView({ onBack }: RetroPieViewProps) {
     };
   }, [selectedSystem]);
 
-  const systems = useMemo(() => (state.kind === 'ready' ? state.systems : []), [state]);
+  const systems = useMemo(() => (state.kind === 'ready' ? sortNames(state.systems) : []), [state]);
 
   const games = useMemo(() => {
     if (gamesState.kind === 'ready') {
-      return gamesState.games;
+      return sortNames(gamesState.games);
     }
     return [];
   }, [gamesState]);

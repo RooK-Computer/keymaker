@@ -3,6 +3,7 @@ package screens
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 
 	"github.com/rook-computer/keymaker/internal/render"
@@ -46,6 +47,23 @@ func (screen *WiFiSetupScreen) Start(ctx context.Context) error {
 	go func() {
 		wifiConfig := state.GetWiFiConfig()
 		snapshot := wifiConfig.Snapshot()
+
+		// If WiFi is already configured in our in-memory state, do not attempt
+		// to reconfigure/restart WiFi here. This screen is shown after cartridge
+		// insertion; during eject flows we want to proceed immediately.
+		configured := snapshot.Initialized && (snapshot.Mode == state.WiFiModeHotspot || (snapshot.Mode == state.WiFiModeJoin && strings.TrimSpace(snapshot.SSID) != ""))
+		if configured && !snapshot.NeedsApply {
+			screen.setMessage("wifi already configured")
+			nextScreen := &MainScreen{}
+			if err := screen.App.SetScreen(nextScreen); err != nil {
+				if screen.Logger != nil {
+					screen.Logger.Errorf("app", "failed to switch to main screen: %v", err)
+				}
+				screen.App.Exit(err)
+				return
+			}
+			return
+		}
 		networkAvailable := false
 
 		// Unknown state on boot: if any network is available, do nothing and exit.
@@ -81,6 +99,7 @@ func (screen *WiFiSetupScreen) Start(ctx context.Context) error {
 					screen.App.Exit(err)
 					return
 				}
+				wifiConfig.MarkApplied()
 			case state.WiFiModeJoin:
 				if err := system.JoinWiFi(screenCtx, screen.Runner, snapshot.SSID, snapshot.Password); err != nil {
 					if screen.Logger != nil {
@@ -89,6 +108,7 @@ func (screen *WiFiSetupScreen) Start(ctx context.Context) error {
 					screen.App.Exit(err)
 					return
 				}
+				wifiConfig.MarkApplied()
 			default:
 				// Safety fallback: if mode is still unknown, attempt hotspot.
 				wifiConfig.SetHotspot()
@@ -99,6 +119,7 @@ func (screen *WiFiSetupScreen) Start(ctx context.Context) error {
 					screen.App.Exit(err)
 					return
 				}
+				wifiConfig.MarkApplied()
 			}
 		}
 
