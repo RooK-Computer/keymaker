@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/rook-computer/keymaker/internal/assets"
 )
 
 type HTTPServer struct {
@@ -115,9 +117,15 @@ func (s *HTTPServer) Stop() error {
 func (s *HTTPServer) staticHandler() http.Handler {
 	dir := s.StaticDir
 	if dir == "" {
-		// Default: serve repo docs when present (useful for local dev).
-		dir = "docs"
+		fileServer := http.FileServer(http.FS(assets.WebUI))
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Clean path to avoid oddities.
+			r.URL.Path = filepath.ToSlash(filepath.Clean("/" + r.URL.Path))
+			fileServer.ServeHTTP(w, r)
+		})
 	}
+
+	// When StaticDir is set to an existing directory, serve it at '/'.
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
