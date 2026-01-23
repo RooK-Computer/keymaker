@@ -43,10 +43,9 @@ func (app *App) HandleFlash(ctx context.Context, reader io.Reader) error {
 	if err == nil {
 		// Re-detect cartridge contents after flashing (partitions may take a moment to settle).
 		_ = cartridge.DetectAndUpdate(ctx, runner, app.Logger, cartridge.DetectOptions{
-			HasWorkCartridge: true,
-			ManageBusy:       false,
-			Retries:          6,
-			RetryDelay:       1 * time.Second,
+			ManageBusy: false,
+			Retries:    6,
+			RetryDelay: 1 * time.Second,
 		})
 	}
 	if app.Store != nil {

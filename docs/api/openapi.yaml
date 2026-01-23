@@ -316,11 +316,9 @@ components:
           type: array
           items:
             type: string
-        hasWorkCartridge:
-          type: boolean
         busy:
           type: boolean
-      required: [present, mounted, isRetroPie, systems, hasWorkCartridge, busy]
+      required: [present, mounted, isRetroPie, systems, busy]
 
     Ok:
       type: object

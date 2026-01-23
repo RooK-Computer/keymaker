@@ -28,12 +28,11 @@ type okResponse struct {
 }
 
 type cartridgeInfoResponse struct {
-	Present          bool     `json:"present"`
-	Mounted          bool     `json:"mounted"`
-	IsRetroPie       bool     `json:"isRetroPie"`
-	Systems          []string `json:"systems"`
-	HasWorkCartridge bool     `json:"hasWorkCartridge"`
-	Busy             bool     `json:"busy"`
+	Present    bool     `json:"present"`
+	Mounted    bool     `json:"mounted"`
+	IsRetroPie bool     `json:"isRetroPie"`
+	Systems    []string `json:"systems"`
+	Busy       bool     `json:"busy"`
 }
 
 func apiV1Router(ejectFunc func(ctx context.Context) error, flashFunc func(ctx context.Context, reader io.Reader) error) http.Handler {
@@ -607,12 +606,11 @@ func handleCartridgeInfo(w http.ResponseWriter, r *http.Request) {
 
 	snap := state.GetCartridgeInfo().Snapshot()
 	resp := cartridgeInfoResponse{
-		Present:          snap.Present,
-		Mounted:          snap.Mounted,
-		IsRetroPie:       snap.IsRetroPie,
-		Systems:          snap.Systems,
-		HasWorkCartridge: snap.HasWorkCartridge,
-		Busy:             snap.Busy,
+		Present:    snap.Present,
+		Mounted:    snap.Mounted,
+		IsRetroPie: snap.IsRetroPie,
+		Systems:    snap.Systems,
+		Busy:       snap.Busy,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

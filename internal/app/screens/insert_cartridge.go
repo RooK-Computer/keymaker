@@ -65,10 +65,9 @@ func (screen *InsertCartridgeScreen) Start(ctx context.Context) error {
 
 		screen.setMessage("analyzing cartridge")
 		_ = cartridge.DetectAndUpdate(screenCtx, screen.Runner, screen.Logger, cartridge.DetectOptions{
-			HasWorkCartridge: true,
-			ManageBusy:       true,
-			Retries:          3,
-			RetryDelay:       750 * time.Millisecond,
+			ManageBusy: true,
+			Retries:    3,
+			RetryDelay: 750 * time.Millisecond,
 		})
 		screen.setMessage("cartridge ready")
 		nextScreen := NewWiFiSetupScreen(screen.Runner, screen.Logger, screen.App)

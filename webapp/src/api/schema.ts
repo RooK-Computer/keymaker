@@ -160,7 +160,6 @@ export interface components {
             mounted: boolean;
             isRetroPie: boolean;
             systems: string[];
-            hasWorkCartridge: boolean;
             busy: boolean;
         };
         Ok: {

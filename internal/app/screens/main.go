@@ -183,11 +183,6 @@ func (screen *MainScreen) drawCartridge(drawer render.Drawer, rect image.Rectang
 		return
 	}
 
-	if snapshot.HasWorkCartridge {
-		drawer.DrawText("Work cartridge: yes", rect.Min.X, y, bodyStyle)
-		y += drawer.MeasureText("Work cartridge: yes", bodyStyle).LineHeight + 6
-	}
-
 	mountedText := "Mounted: no"
 	if snapshot.Mounted {
 		mountedText = "Mounted: yes"

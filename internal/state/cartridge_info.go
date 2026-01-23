@@ -3,23 +3,21 @@ package state
 import "sync"
 
 type CartridgeInfoSnapshot struct {
-	Present          bool
-	Mounted          bool
-	IsRetroPie       bool
-	Systems          []string
-	HasWorkCartridge bool
-	Busy             bool
+	Present    bool
+	Mounted    bool
+	IsRetroPie bool
+	Systems    []string
+	Busy       bool
 }
 
 type CartridgeInfo struct {
 	mu sync.RWMutex
 
-	present          bool
-	mounted          bool
-	isRetroPie       bool
-	systems          []string
-	hasWorkCartridge bool
-	busy             bool
+	present    bool
+	mounted    bool
+	isRetroPie bool
+	systems    []string
+	busy       bool
 }
 
 var (
@@ -39,12 +37,11 @@ func (info *CartridgeInfo) Snapshot() CartridgeInfoSnapshot {
 	defer info.mu.RUnlock()
 
 	return CartridgeInfoSnapshot{
-		Present:          info.present,
-		Mounted:          info.mounted,
-		IsRetroPie:       info.isRetroPie,
-		Systems:          cloneStrings(info.systems),
-		HasWorkCartridge: info.hasWorkCartridge,
-		Busy:             info.busy,
+		Present:    info.present,
+		Mounted:    info.mounted,
+		IsRetroPie: info.isRetroPie,
+		Systems:    cloneStrings(info.systems),
+		Busy:       info.busy,
 	}
 }
 
@@ -54,7 +51,6 @@ func (info *CartridgeInfo) Reset() {
 	info.mounted = false
 	info.isRetroPie = false
 	info.systems = nil
-	info.hasWorkCartridge = false
 	info.busy = false
 	info.mu.Unlock()
 }
@@ -74,12 +70,6 @@ func (info *CartridgeInfo) SetMounted(mounted bool) {
 func (info *CartridgeInfo) SetBusy(busy bool) {
 	info.mu.Lock()
 	info.busy = busy
-	info.mu.Unlock()
-}
-
-func (info *CartridgeInfo) SetHasWorkCartridge(hasWorkCartridge bool) {
-	info.mu.Lock()
-	info.hasWorkCartridge = hasWorkCartridge
 	info.mu.Unlock()
 }
 

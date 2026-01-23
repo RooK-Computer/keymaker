@@ -15,8 +15,6 @@ type Logger interface {
 }
 
 type DetectOptions struct {
-	HasWorkCartridge bool
-
 	// ManageBusy toggles CartridgeInfo.Busy while detecting.
 	ManageBusy bool
 
@@ -56,7 +54,6 @@ func DetectAndUpdate(ctx context.Context, runner system.Runner, logger Logger, o
 	}
 
 	cartridgeInfo.SetPresent(true)
-	cartridgeInfo.SetHasWorkCartridge(opts.HasWorkCartridge)
 
 	mountedBefore, err := system.IsCartridgeMounted(ctx, runner)
 	if err != nil {

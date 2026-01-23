@@ -1,10 +1,21 @@
 import styles from './App.module.css';
+import { MainView } from './views/MainView';
 
 export function App() {
   return (
     <main className={styles.container}>
-      <h1>Keymaker</h1>
-      <p>Web UI pipeline is working.</p>
+      <MainView
+        pollIntervalMs={1000}
+        onEjectClick={() => {
+          window.alert('Not implemented yet (step 4).');
+        }}
+        onFlashClick={() => {
+          window.alert('Not implemented yet (step 5).');
+        }}
+        onManageRetroPieClick={() => {
+          window.alert('Not implemented yet (step 6).');
+        }}
+      />
     </main>
   );
 }
