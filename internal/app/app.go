@@ -95,6 +95,12 @@ func (app *App) Start(ctx context.Context) error {
 	// Debug/escape hatch: allow clean shutdown via keyboard (F4).
 	// Best-effort; if no evdev devices exist on the target, this is a no-op.
 	system.StartExitOnF4(ctx, app.Logger, func() { app.Exit(nil) })
+	// Also watch the active terminal (stdin / /dev/tty) for F4 escape sequences.
+	// This is helpful on systems where evdev input isn't accessible.
+	system.StartExitOnF4TTY(ctx, app.Logger, func() { app.Exit(nil) })
+	// Fallback path: read from /dev/tty in raw mode. Useful when evdev events
+	// are not delivered consistently on some setups.
+	system.StartExitOnF4TTY(ctx, app.Logger, func() { app.Exit(nil) })
 
 	if app.netRefreshCh == nil {
 		app.netRefreshCh = make(chan struct{}, 1)
