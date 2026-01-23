@@ -51,18 +51,20 @@ func (screen *MainScreen) Start(ctx context.Context) error {
 
 	workerCtx, cancel := context.WithCancel(ctx)
 	screen.qrStop = cancel
-	screen.qrReqCh = make(chan qrRequest, 8)
-	screen.qrResCh = make(chan qrResult, 8)
+	reqCh := make(chan qrRequest, 8)
+	resCh := make(chan qrResult, 8)
+	screen.qrReqCh = reqCh
+	screen.qrResCh = resCh
 
 	go func() {
 		for {
 			select {
 			case <-workerCtx.Done():
 				return
-			case req := <-screen.qrReqCh:
+			case req := <-reqCh:
 				img, err := render.GenerateQRCodeImage(req.payload, req.size)
 				select {
-				case screen.qrResCh <- qrResult{kind: req.kind, payload: req.payload, img: img, err: err}:
+				case resCh <- qrResult{kind: req.kind, payload: req.payload, img: img, err: err}:
 				case <-workerCtx.Done():
 					return
 				}

@@ -8,6 +8,7 @@ import (
 	"image/draw"
 	"image/png"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -33,6 +34,7 @@ type FBRenderer struct {
 	// Logo is decoded once from embedded assets and can be reused by screens.
 	Logo         image.Image
 	running      atomic.Bool
+	currentMu    sync.RWMutex
 	current      Screen
 	lastLogoRect image.Rectangle
 	Logger       interface {
@@ -107,6 +109,9 @@ func (renderer *FBRenderer) Start(ctx context.Context) error {
 
 func (renderer *FBRenderer) Stop() error {
 	renderer.running.Store(false)
+	renderer.currentMu.Lock()
+	renderer.current = nil
+	renderer.currentMu.Unlock()
 	for _, face := range renderer.faceCache {
 		if closer, ok := face.(interface{ Close() error }); ok {
 			_ = closer.Close()
@@ -121,7 +126,11 @@ func (renderer *FBRenderer) Stop() error {
 }
 
 // SetScreen sets the current logical screen to be drawn.
-func (renderer *FBRenderer) SetScreen(screen Screen) { renderer.current = screen }
+func (renderer *FBRenderer) SetScreen(screen Screen) {
+	renderer.currentMu.Lock()
+	renderer.current = screen
+	renderer.currentMu.Unlock()
+}
 
 func (renderer *FBRenderer) Size() (width int, height int) {
 	if renderer.canvas == nil {
@@ -133,14 +142,22 @@ func (renderer *FBRenderer) Size() (width int, height int) {
 
 // Redraw triggers a draw of the current screen.
 func (renderer *FBRenderer) RedrawWithState(snap state.State) {
-	if !renderer.running.Load() || renderer.current == nil || renderer.fbDev == nil {
+	if !renderer.running.Load() || renderer.fbDev == nil {
+		return
+	}
+
+	renderer.currentMu.RLock()
+	screen := renderer.current
+	if screen == nil {
+		renderer.currentMu.RUnlock()
 		return
 	}
 	// Clear canvas to background each frame for consistent rendering
 	renderer.FillBackground()
 	// Provide a Drawer implementation and ask the screen to draw
-	renderer.current.Draw(renderer, snap)
+	screen.Draw(renderer, snap)
 	_ = blitToFB(renderer.fbDev, renderer.canvas)
+	renderer.currentMu.RUnlock()
 	if renderer.Logger != nil {
 		renderer.Logger.Infof("fb", "redraw done, phase=%d", snap.Phase)
 	}

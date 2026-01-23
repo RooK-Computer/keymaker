@@ -98,9 +98,6 @@ func (app *App) Start(ctx context.Context) error {
 	// Also watch the active terminal (stdin / /dev/tty) for F4 escape sequences.
 	// This is helpful on systems where evdev input isn't accessible.
 	system.StartExitOnF4TTY(ctx, app.Logger, func() { app.Exit(nil) })
-	// Fallback path: read from /dev/tty in raw mode. Useful when evdev events
-	// are not delivered consistently on some setups.
-	system.StartExitOnF4TTY(ctx, app.Logger, func() { app.Exit(nil) })
 
 	if app.netRefreshCh == nil {
 		app.netRefreshCh = make(chan struct{}, 1)
@@ -233,11 +230,12 @@ func (app *App) Start(ctx context.Context) error {
 }
 
 func (app *App) SetScreen(screen render.Screen) error {
-	if app.currentScreen != nil {
-		_ = app.currentScreen.Stop()
-	}
+	old := app.currentScreen
 	app.currentScreen = screen
 	app.Render.SetScreen(screen)
+	if old != nil {
+		_ = old.Stop()
+	}
 	baseCtx := app.baseCtx
 	if baseCtx == nil {
 		baseCtx = context.Background()

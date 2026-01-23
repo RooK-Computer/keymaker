@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/rook-computer/keymaker/internal/app"
@@ -15,13 +16,48 @@ import (
 	"github.com/rook-computer/keymaker/internal/web"
 )
 
+func redirectStdIO(path string) error {
+	if path == "" {
+		return nil
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	// Duplicate the file descriptor onto stdout/stderr so panics and all prints
+	// (including from other goroutines) end up in the file.
+	if err := syscall.Dup2(int(f.Fd()), int(os.Stdout.Fd())); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := syscall.Dup2(int(f.Fd()), int(os.Stderr.Fd())); err != nil {
+		_ = f.Close()
+		return err
+	}
+	_ = f.Close()
+	return nil
+}
+
 func main() {
 	fmt.Println("Keymaker starting (skeleton)")
 
 	// Flags
 	debug := flag.Bool("debug", false, "enable debug logging to ./keymaker-debug.log")
 	noLogo := flag.Bool("no-logo", false, "disable logo rendering")
+	stdioLog := flag.String("stdio-log", "", "redirect stdout+stderr (including panics) to this file; also configurable via KEYMAKER_STDIO_LOG")
 	flag.Parse()
+
+	// Best-effort: redirect all stdout/stderr output (including panic stack traces)
+	// to a file so crashes are diagnosable even when the console is left in graphics mode.
+	logPath := *stdioLog
+	if logPath == "" {
+		logPath = os.Getenv("KEYMAKER_STDIO_LOG")
+	}
+	if logPath != "" {
+		if err := redirectStdIO(logPath); err != nil {
+			fmt.Println("stdio log redirect error:", err)
+		}
+	}
 
 	// Local file logger when debug enabled
 	var logger app.Logger = app.NoopLogger{}
