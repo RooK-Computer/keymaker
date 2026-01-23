@@ -2,3 +2,6 @@ bin
 
 # API docs toolchain
 api-spec/node_modules
+
+# Web app toolchain
+webapp/node_modules
