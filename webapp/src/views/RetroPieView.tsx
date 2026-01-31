@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import {
   APIError,
+  apiV1Url,
   deleteRetroPieGame,
   listRetroPieGames,
   listRetroPieSystems,
@@ -274,7 +275,7 @@ export function RetroPieView({ onBack }: RetroPieViewProps) {
               {gamesState.kind === 'ready' && games.length > 0 && (
                 <ul>
                   {games.map((game) => {
-                    const url = `/api/v1/retropie/${encodeURIComponent(selectedSystem)}/${encodeURIComponent(game)}`;
+                  const url = apiV1Url(`/retropie/${encodeURIComponent(selectedSystem)}/${encodeURIComponent(game)}`);
                     return (
                       <li key={game}>
                         {game} —{' '}

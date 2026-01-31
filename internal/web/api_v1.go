@@ -13,9 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/rook-computer/keymaker/internal/state"
-	"github.com/rook-computer/keymaker/internal/system"
 )
 
 type apiError struct {
@@ -36,20 +33,29 @@ type cartridgeInfoResponse struct {
 }
 
 func apiV1Router(ejectFunc func(ctx context.Context) error, flashFunc func(ctx context.Context, reader io.Reader) error) http.Handler {
+	// Backwards-compatible defaults: keep the existing device behavior
+	// (mount via scripts, roms under /cartridge/...) unless an entrypoint
+	// registers routes with explicit deps.
+	deps := NewDeviceAPIV1Deps(nil).withDefaults()
+	return apiV1RouterWithDeps(APIV1Handlers{EjectFunc: ejectFunc, FlashFunc: flashFunc}, deps)
+}
+
+func apiV1RouterWithDeps(handlers APIV1Handlers, deps APIV1Deps) http.Handler {
+	deps = deps.withDefaults()
 	mux := http.NewServeMux()
-	mux.HandleFunc("/cartridgeinfo", handleCartridgeInfo)
-	mux.HandleFunc("/retropie", handleRetroPie)
-	mux.HandleFunc("/retropie/", handleRetroPie)
+	mux.HandleFunc("/cartridgeinfo", func(w http.ResponseWriter, r *http.Request) { handleCartridgeInfo(w, r, deps) })
+	mux.HandleFunc("/retropie", func(w http.ResponseWriter, r *http.Request) { handleRetroPie(w, r, deps) })
+	mux.HandleFunc("/retropie/", func(w http.ResponseWriter, r *http.Request) { handleRetroPie(w, r, deps) })
 	mux.HandleFunc("/eject", func(w http.ResponseWriter, r *http.Request) {
-		handleEject(w, r, ejectFunc)
+		handleEject(w, r, deps, handlers.EjectFunc)
 	})
 	mux.HandleFunc("/flash", func(w http.ResponseWriter, r *http.Request) {
-		handleFlash(w, r, flashFunc)
+		handleFlash(w, r, deps, handlers.FlashFunc)
 	})
 	return mux
 }
 
-func handleEject(w http.ResponseWriter, r *http.Request, ejectFunc func(ctx context.Context) error) {
+func handleEject(w http.ResponseWriter, r *http.Request, deps APIV1Deps, ejectFunc func(ctx context.Context) error) {
 	if r.Method != http.MethodPost {
 		writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
@@ -59,7 +65,7 @@ func handleEject(w http.ResponseWriter, r *http.Request, ejectFunc func(ctx cont
 		return
 	}
 
-	snap := state.GetCartridgeInfo().Snapshot()
+	snap := deps.Cartridge.Snapshot()
 	if snap.Busy {
 		writeAPIError(w, http.StatusConflict, "cartridge_busy", "cartridge is busy")
 		return
@@ -76,7 +82,7 @@ func handleEject(w http.ResponseWriter, r *http.Request, ejectFunc func(ctx cont
 	writeJSON(w, http.StatusOK, okResponse{OK: true})
 }
 
-func handleFlash(w http.ResponseWriter, r *http.Request, flashFunc func(ctx context.Context, reader io.Reader) error) {
+func handleFlash(w http.ResponseWriter, r *http.Request, deps APIV1Deps, flashFunc func(ctx context.Context, reader io.Reader) error) {
 	if r.Method != http.MethodPost {
 		writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
@@ -90,7 +96,7 @@ func handleFlash(w http.ResponseWriter, r *http.Request, flashFunc func(ctx cont
 		return
 	}
 
-	snap := state.GetCartridgeInfo().Snapshot()
+	snap := deps.Cartridge.Snapshot()
 	if snap.Busy {
 		writeAPIError(w, http.StatusConflict, "cartridge_busy", "cartridge is busy")
 		return
@@ -106,10 +112,10 @@ func handleFlash(w http.ResponseWriter, r *http.Request, flashFunc func(ctx cont
 		writeAPIError(w, http.StatusInternalServerError, "flash_failed", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, okResponse{OK: true})
+	writeJSON(w, http.StatusAccepted, okResponse{OK: true})
 }
 
-func handleRetroPie(w http.ResponseWriter, r *http.Request) {
+func handleRetroPie(w http.ResponseWriter, r *http.Request, deps APIV1Deps) {
 	// Step 3: GET /retropie -> systems list (from CartridgeInfo snapshot)
 	// Step 4: GET /retropie/{system} -> game list (requires mounted cartridge)
 	// Step 5: GET /retropie/{system}/{game} -> download game bytes (zip folder if needed)
@@ -120,7 +126,7 @@ func handleRetroPie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	snap := state.GetCartridgeInfo().Snapshot()
+	snap := deps.Cartridge.Snapshot()
 	if snap.Busy {
 		writeAPIError(w, http.StatusConflict, "cartridge_busy", "cartridge is busy")
 		return
@@ -165,12 +171,12 @@ func handleRetroPie(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := ensureCartridgeMounted(r.Context()); err != nil {
+		if err := deps.Mounter.EnsureMounted(r.Context()); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "mount_failed", err.Error())
 			return
 		}
 
-		games, err := listGamesForSystem(systemName)
+		games, err := deps.RetroPie.ListGames(r.Context(), systemName)
 		if err != nil {
 			if errorsIsNotExist(err) {
 				writeAPIError(w, http.StatusNotFound, "system_not_found", "system not found")
@@ -195,14 +201,14 @@ func handleRetroPie(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := ensureCartridgeMounted(r.Context()); err != nil {
+		if err := deps.Mounter.EnsureMounted(r.Context()); err != nil {
 			writeAPIError(w, http.StatusInternalServerError, "mount_failed", err.Error())
 			return
 		}
 
 		switch r.Method {
 		case http.MethodGet:
-			if err := downloadGame(w, r, systemName, gameName); err != nil {
+			if err := deps.RetroPie.DownloadGame(r.Context(), w, r, systemName, gameName); err != nil {
 				if errorsIsNotExist(err) {
 					writeAPIError(w, http.StatusNotFound, "game_not_found", "game not found")
 					return
@@ -216,7 +222,7 @@ func handleRetroPie(w http.ResponseWriter, r *http.Request) {
 				writeAPIError(w, http.StatusLengthRequired, "length_required", err.Error())
 				return
 			}
-			if err := uploadGame(r, systemName, gameName); err != nil {
+			if err := deps.RetroPie.UploadGame(r.Context(), systemName, gameName, r.Body, r.ContentLength); err != nil {
 				if errorsIsNotExist(err) {
 					writeAPIError(w, http.StatusNotFound, "system_not_found", "system not found")
 					return
@@ -227,7 +233,7 @@ func handleRetroPie(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, okResponse{OK: true})
 			return
 		case http.MethodDelete:
-			if err := deleteGame(systemName, gameName); err != nil {
+			if err := deps.RetroPie.DeleteGame(r.Context(), systemName, gameName); err != nil {
 				if errorsIsNotExist(err) {
 					writeAPIError(w, http.StatusNotFound, "game_not_found", "game not found")
 					return
@@ -247,27 +253,8 @@ func handleRetroPie(w http.ResponseWriter, r *http.Request) {
 	writeAPIError(w, http.StatusNotFound, "not_found", "not found")
 }
 
-type noopSysLogger struct{}
-
-func (noopSysLogger) Infof(string, string, ...interface{})  {}
-func (noopSysLogger) Errorf(string, string, ...interface{}) {}
-
-func ensureCartridgeMounted(ctx context.Context) error {
-	snap := state.GetCartridgeInfo().Snapshot()
-	if snap.Mounted {
-		return nil
-	}
-
-	runner := system.ShellRunner{Logger: noopSysLogger{}}
-	if err := system.MountCartridge(ctx, runner); err != nil {
-		return err
-	}
-	state.GetCartridgeInfo().SetMounted(true)
-	return nil
-}
-
-func listGamesForSystem(systemName string) ([]string, error) {
-	romDir := filepath.Join("/cartridge/home/pi/RetroPie/roms", systemName)
+func listGamesForSystem(romsRoot, systemName string) ([]string, error) {
+	romDir := filepath.Join(romsRoot, systemName)
 	entries, err := os.ReadDir(romDir)
 	if err != nil {
 		return nil, err
@@ -287,8 +274,8 @@ func listGamesForSystem(systemName string) ([]string, error) {
 	return games, nil
 }
 
-func downloadGame(w http.ResponseWriter, r *http.Request, systemName, gameName string) error {
-	gamePath := filepath.Join("/cartridge/home/pi/RetroPie/roms", systemName, gameName)
+func downloadGame(romsRoot string, w http.ResponseWriter, r *http.Request, systemName, gameName string) error {
+	gamePath := filepath.Join(romsRoot, systemName, gameName)
 	info, err := os.Stat(gamePath)
 	if err != nil {
 		return err
@@ -390,8 +377,8 @@ type apiSimpleError struct{ Message string }
 
 func (e *apiSimpleError) Error() string { return e.Message }
 
-func uploadGame(r *http.Request, systemName, gameName string) error {
-	romSystemDir := filepath.Join("/cartridge/home/pi/RetroPie/roms", systemName)
+func uploadGame(romsRoot, systemName, gameName string, body io.Reader, contentLength int64) error {
+	romSystemDir := filepath.Join(romsRoot, systemName)
 	if _, err := os.Stat(romSystemDir); err != nil {
 		return err
 	}
@@ -400,7 +387,7 @@ func uploadGame(r *http.Request, systemName, gameName string) error {
 	if !isZip {
 		targetPath := filepath.Join(romSystemDir, gameName)
 		_ = os.RemoveAll(targetPath)
-		return writeStreamToFile(targetPath, r.Body, r.ContentLength)
+		return writeStreamToFile(targetPath, body, contentLength)
 	}
 
 	baseName := gameName[:len(gameName)-4]
@@ -412,7 +399,7 @@ func uploadGame(r *http.Request, systemName, gameName string) error {
 	// Store the uploaded zip temporarily on the cartridge (not in RAM).
 	tmpName := ".upload-" + strconv.FormatInt(time.Now().UnixNano(), 10) + "-" + sanitizeFilename(gameName)
 	tmpZipPath := filepath.Join(romSystemDir, tmpName)
-	if err := writeStreamToFile(tmpZipPath, r.Body, r.ContentLength); err != nil {
+	if err := writeStreamToFile(tmpZipPath, body, contentLength); err != nil {
 		_ = os.Remove(tmpZipPath)
 		return err
 	}
@@ -573,8 +560,8 @@ func sanitizeFilename(name string) string {
 	return name
 }
 
-func deleteGame(systemName, gameName string) error {
-	gamePath := filepath.Join("/cartridge/home/pi/RetroPie/roms", systemName, gameName)
+func deleteGame(romsRoot, systemName, gameName string) error {
+	gamePath := filepath.Join(romsRoot, systemName, gameName)
 	info, err := os.Stat(gamePath)
 	if err != nil {
 		return err
@@ -598,13 +585,13 @@ func errorsIsNotExist(err error) bool {
 	return err != nil && os.IsNotExist(err)
 }
 
-func handleCartridgeInfo(w http.ResponseWriter, r *http.Request) {
+func handleCartridgeInfo(w http.ResponseWriter, r *http.Request, deps APIV1Deps) {
 	if r.Method != http.MethodGet {
 		writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 		return
 	}
 
-	snap := state.GetCartridgeInfo().Snapshot()
+	snap := deps.Cartridge.Snapshot()
 	resp := cartridgeInfoResponse{
 		Present:    snap.Present,
 		Mounted:    snap.Mounted,

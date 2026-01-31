@@ -57,7 +57,7 @@ func main() {
 
 	// Subsystem stubs (renderer is real to show the local UI)
 	renderer := render.NewFBRenderer()
-	server := web.NewHTTPServer(":80")
+	server := web.NewHTTPServer(web.ServerConfig{ListenAddr: ":80"})
 	flasher := flash.NewScriptFlasher()
 	btns := buttons.NewNoopButtons()
 
@@ -68,6 +68,10 @@ func main() {
 	a.Debug = *debug
 	server.EjectFunc = a.HandleEject
 	server.FlashFunc = a.HandleFlash
+	server.Handler = web.NewDefaultMux(server.StaticDir, web.APIV1Config{
+		Handlers: web.APIV1Handlers{EjectFunc: a.HandleEject, FlashFunc: a.HandleFlash},
+		Deps:     web.NewDeviceAPIV1Deps(a.Logger),
+	})
 
 	if err := a.Start(ctx); err != nil {
 		fmt.Println("app start error:", err)

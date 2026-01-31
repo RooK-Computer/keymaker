@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { APIError, ejectCartridge, getCartridgeInfo } from '../api';
+import { APIError, apiV1Url, ejectCartridge, getCartridgeInfo } from '../api';
 
 type CartridgeInfo = Awaited<ReturnType<typeof getCartridgeInfo>>;
 
@@ -180,7 +180,7 @@ export function MainView({ pollIntervalMs = 1000, onManageRetroPieClick }: MainV
     const xhr = new XMLHttpRequest();
     flashXhrRef.current = xhr;
 
-    xhr.open('POST', '/api/v1/flash');
+    xhr.open('POST', apiV1Url('/flash'));
     xhr.setRequestHeader('Content-Type', 'application/gzip');
 
     xhr.upload.onprogress = (event) => {

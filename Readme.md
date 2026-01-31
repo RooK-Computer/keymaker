@@ -23,3 +23,33 @@ Keymaker consists of a few moving parts:
 * An HTTP API to do all the management.
 * A Web App that interacts with said API
 
+## Development (simulator + web UI)
+
+You can run the API simulator on your dev machine and point the Vite dev server at it.
+
+One terminal (API simulator):
+
+`make sim-dev`
+
+Another terminal (web UI):
+
+`make web-dev`
+
+Or run both together:
+
+`make dev`
+
+Notes:
+
+* `sim-dev` runs the simulator with `--dev`, which enables permissive CORS for local development.
+* The web UI reads the API host from `VITE_API_BASE_URL` (default: `http://127.0.0.1:8080`).
+* Override the simulator port with `SIM_PORT=8090 make dev`.
+
+## API validation
+
+Run a lightweight simulator check against the OpenAPI expectations:
+
+`make validate-sim-api`
+
+Note: validation helpers live under `tools/` (the `scripts/` folder is reserved for scripts that get copied onto the device).
+

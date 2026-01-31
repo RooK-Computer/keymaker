@@ -1,5 +1,10 @@
 BIN_DIR := bin
 BINARY := $(BIN_DIR)/keymaker
+SIM_BINARY := $(BIN_DIR)/keymaker-sim
+
+SIM_PORT ?= 8080
+SIM_LISTEN ?= :$(SIM_PORT)
+VITE_API_BASE_URL ?= http://127.0.0.1:$(SIM_PORT)
 
 WEBAPP_DIR := webapp
 WEBAPP_OUT := internal/assets/web
@@ -14,7 +19,7 @@ WEBAPP_SOURCES := $(shell find $(WEBAPP_DIR)/src -type f -print) \
 	$(WEBAPP_DIR)/package-lock.json \
 	api-spec/openapi.yaml
 
-.PHONY: all build clean run test-build deps api-docs
+.PHONY: all build build-sim clean run sim sim-dev test-build deps api-docs webapp-build web-install web-dev dev validate-sim-api
 
 all: build
 
@@ -23,13 +28,37 @@ build: deps webapp-build
 	@echo "Building $(BINARY)"
 	@go build -o $(BINARY) ./
 
+build-sim: deps webapp-build
+	@mkdir -p $(BIN_DIR)
+	@echo "Building $(SIM_BINARY)"
+	@go build -o $(SIM_BINARY) ./simulator
+
 run: build
 	@$(BINARY)
+
+sim: build-sim
+	@$(SIM_BINARY)
+
+sim-dev: build-sim
+	@$(SIM_BINARY) --listen $(SIM_LISTEN) --dev
 
 clean:
 	@rm -rf $(BIN_DIR)
 
 webapp-build: $(WEBAPP_INDEX)
+
+web-install: $(WEBAPP_INSTALL_STAMP)
+	@true
+
+web-dev: web-install
+	@cd $(WEBAPP_DIR) && VITE_API_BASE_URL=$(VITE_API_BASE_URL) npm run dev
+
+# Run simulator + web UI dev server together.
+dev:
+	@$(MAKE) --output-sync=target -j2 sim-dev web-dev
+
+validate-sim-api:
+	@bash ./tools/validate_sim_api.sh
 
 $(WEBAPP_INSTALL_STAMP): $(WEBAPP_DIR)/package-lock.json $(WEBAPP_DIR)/package.json
 	@echo "Installing webapp dependencies"

@@ -1,8 +1,31 @@
 import createClient from 'openapi-fetch';
 import type { paths } from './schema';
 
+function stripTrailingSlashes(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+export function getApiV1BaseUrl(): string {
+  const configured = (import.meta.env.VITE_API_BASE_URL ?? '').trim();
+  if (!configured) {
+    return '/api/v1';
+  }
+  return `${stripTrailingSlashes(configured)}/api/v1`;
+}
+
+export function apiV1Url(path: string): string {
+  const base = getApiV1BaseUrl();
+  if (!path) {
+    return base;
+  }
+  if (path.startsWith('/')) {
+    return `${base}${path}`;
+  }
+  return `${base}/${path}`;
+}
+
 export const apiClient = createClient<paths>({
-  baseUrl: '/api/v1'
+  baseUrl: getApiV1BaseUrl()
 });
 
 export class APIError extends Error {
@@ -88,12 +111,12 @@ async function fetchOrThrow(request: RequestInfo | URL, init?: RequestInit): Pro
 // for browser streaming types (Blob/ArrayBuffer).
 
 export function downloadRetroPieGame(system: string, game: string, signal?: AbortSignal) {
-  const url = `/api/v1/retropie/${encodeURIComponent(system)}/${encodeURIComponent(game)}`;
+  const url = apiV1Url(`/retropie/${encodeURIComponent(system)}/${encodeURIComponent(game)}`);
   return fetchOrThrow(url, { method: 'GET', signal });
 }
 
 export async function uploadRetroPieGame(system: string, game: string, body: BodyInit, signal?: AbortSignal) {
-  const url = `/api/v1/retropie/${encodeURIComponent(system)}/${encodeURIComponent(game)}`;
+  const url = apiV1Url(`/retropie/${encodeURIComponent(system)}/${encodeURIComponent(game)}`);
   const response = await fetchOrThrow(url, {
     method: 'POST',
     headers: {
@@ -106,7 +129,7 @@ export async function uploadRetroPieGame(system: string, game: string, body: Bod
 }
 
 export async function flashCartridge(body: BodyInit, contentType: 'application/octet-stream' | 'application/gzip', signal?: AbortSignal) {
-  const response = await fetchOrThrow('/api/v1/flash', {
+  const response = await fetchOrThrow(apiV1Url('/flash'), {
     method: 'POST',
     headers: {
       'Content-Type': contentType

@@ -18,9 +18,16 @@ import (
 type HTTPServer struct {
 	Addr string
 
+	// DevMode enables development conveniences such as CORS and extra logging.
+	DevMode bool
+
 	// StaticDir, when set to an existing directory, is served at "/".
 	// The API remains available under /api/v1/.
 	StaticDir string
+
+	// Handler, when set, is used as-is for the HTTP server.
+	// This lets binaries register routes without coupling it to HTTPServer startup.
+	Handler http.Handler
 
 	// EjectFunc is called by the API when POST /api/v1/eject is invoked.
 	// It should switch the UI to the eject screen and prepare the cartridge.
@@ -36,8 +43,8 @@ type HTTPServer struct {
 	closed bool
 }
 
-func NewHTTPServer(addr string) *HTTPServer {
-	return &HTTPServer{Addr: addr}
+func NewHTTPServer(cfg ServerConfig) *HTTPServer {
+	return &HTTPServer{Addr: cfg.ListenAddr, DevMode: cfg.DevMode}
 }
 
 func (s *HTTPServer) Start(ctx context.Context) error {
@@ -56,13 +63,17 @@ func (s *HTTPServer) Start(ctx context.Context) error {
 		addr = ":80"
 	}
 
-	mux := http.NewServeMux()
-	mux.Handle("/api/v1/", http.StripPrefix("/api/v1", apiV1Router(s.EjectFunc, s.FlashFunc)))
-	mux.Handle("/", s.staticHandler())
+	handler := s.Handler
+	if handler == nil {
+		handler = NewDefaultMux(s.StaticDir, APIV1Config{Handlers: APIV1Handlers{EjectFunc: s.EjectFunc, FlashFunc: s.FlashFunc}, Deps: NewDeviceAPIV1Deps(nil)})
+	}
+	if s.DevMode {
+		handler = WithDevCORS(handler)
+	}
 
 	s.srv = &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -115,8 +126,11 @@ func (s *HTTPServer) Stop() error {
 }
 
 func (s *HTTPServer) staticHandler() http.Handler {
-	dir := s.StaticDir
-	if dir == "" {
+	return StaticUIHandler(s.StaticDir)
+}
+
+func StaticUIHandler(staticDir string) http.Handler {
+	if staticDir == "" {
 		fileServer := http.FileServer(http.FS(assets.WebUI))
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Clean path to avoid oddities.
@@ -126,13 +140,13 @@ func (s *HTTPServer) staticHandler() http.Handler {
 	}
 
 	// When StaticDir is set to an existing directory, serve it at '/'.
-	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+	if st, err := os.Stat(staticDir); err != nil || !st.IsDir() {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 		})
 	}
 
-	fs := http.Dir(dir)
+	fs := http.Dir(staticDir)
 	fileServer := http.FileServer(fs)
 
 	// When serving at '/', ensure we don't accidentally expose parent directory traversal.
