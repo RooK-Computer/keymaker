@@ -1,3 +1,141 @@
+:global(html),
+:global(body),
+:global(#root) {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: #f7e600;
+}
+
 .container {
-  padding: 16px;
+  --u: 8px;
+  --bg: #f7e600;
+  --panel: #dbdbdb;
+  --ink: #1a1a1a;
+  --accent: #9b1cff;
+  --line: #161616;
+  --line-soft: #5c5c5c;
+  min-height: 100dvh;
+  box-sizing: border-box;
+  padding: calc(var(--u) * 3) calc(var(--u) * 3) calc(var(--u) * 2);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--u) * 2);
+  background:
+    radial-gradient(circle at 15% 20%, #ffef72 0%, transparent 35%),
+    radial-gradient(circle at 85% 80%, #f3db00 0%, transparent 42%),
+    var(--bg);
+  color: var(--ink);
+  font-family: Inter, Arial, sans-serif;
+  letter-spacing: 0.01em;
+  overflow: visible;
+}
+
+.header {
+  min-height: 24px;
+}
+
+.header h1 {
+  margin: 0;
+  font-family: "Iosevka", monospace;
+  color: var(--accent);
+  font-size: 24px;
+  line-height: calc(var(--u) * 4);
+  text-shadow: 2px 2px 0 #ffffff66;
+}
+
+.header p {
+  margin: var(--u) 0 0;
+  font-size: 16px;
+  line-height: calc(var(--u) * 3);
+  color: #2f2f2f;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: 280px 280px 1fr;
+  gap: var(--u);
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+  overflow: visible;
+}
+
+.column {
+  border: 1px solid #4a4a4a;
+  border-radius: 0;
+  background: linear-gradient(180deg, #e0e0e0 0%, var(--panel) 100%);
+  padding: calc(var(--u) * 2);
+  min-height: 0;
+  box-shadow:
+    0 0 0 1px #ffffff66 inset,
+    0 1px 0 #0000001a;
+  overflow: visible;
+}
+
+.mobileNav {
+  display: none;
+  gap: var(--u);
+}
+
+.mobileNav button {
+  border: 2px solid var(--line);
+  background: #f6e800;
+  color: var(--ink);
+  box-shadow: 4px 4px 0 #000;
+  border-radius: 0;
+  padding: var(--u) calc(var(--u) * 2);
+  font-size: 14px;
+  line-height: calc(var(--u) * 2);
+  font-family: "Iosevka", monospace;
+  cursor: pointer;
+  transition: box-shadow 120ms ease;
+}
+
+.mobileNav button:hover:not(:disabled) {
+  box-shadow: 8px 8px 0 #000;
+}
+
+.mobileNav button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.columnVisible {
+  display: block;
+}
+
+.columnHidden {
+  display: block;
+}
+
+@media (max-width: 1099px) {
+  .mobileNav {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  .columns {
+    display: block;
+  }
+
+  .column {
+    margin-bottom: calc(var(--u) * 2);
+    min-height: auto;
+  }
+
+  .columnHidden {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .container {
+    padding: calc(var(--u) * 2);
+  }
+
+  .header h1 {
+    font-size: 20px;
+  }
 }

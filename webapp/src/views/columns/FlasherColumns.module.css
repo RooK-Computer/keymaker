@@ -1,0 +1,264 @@
+.section {
+  --u: 8px;
+  --accent: #9b1cff;
+  --ink: #1a1a1a;
+  --line: #161616;
+  --row: #d9d9d9;
+  --button: #f7e800;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  height: auto;
+  position: relative;
+}
+
+.title {
+  margin: 0 0 var(--u);
+  font-family: "Iosevka", monospace;
+  color: var(--accent);
+  font-size: 22px;
+  line-height: calc(var(--u) * 3);
+  font-weight: 700;
+  text-shadow: 1px 1px 0 #ffffff4d;
+}
+
+.emptyText {
+  margin: 0;
+  color: #3a3a3a;
+  line-height: calc(var(--u) * 3);
+}
+
+.cartridgeImageWrap {
+  width: 144px;
+  height: 216px;
+  margin: calc(var(--u) * 2) 0 var(--u);
+  align-self: center;
+}
+
+.cartridgeImage {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.statusLine {
+  margin: 0 0 calc(var(--u) * 2);
+  font-size: 20px;
+  line-height: calc(var(--u) * 3);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.statusMeta {
+  margin: 0 0 calc(var(--u) * 2);
+  font-size: 16px;
+  line-height: calc(var(--u) * 3);
+  color: #484848;
+}
+
+.actionArea {
+  margin-top: calc(var(--u) * 2);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--u) * 2);
+}
+
+.pixelButton {
+  border: 2px solid var(--line);
+  background: linear-gradient(180deg, #fff16d 0%, var(--button) 100%);
+  color: var(--ink);
+  font-family: "Iosevka", monospace;
+  font-size: 20px;
+  line-height: calc(var(--u) * 3);
+  text-align: left;
+  padding: var(--u) calc(var(--u) * 2);
+  box-shadow: calc(var(--u) / 2) calc(var(--u) / 2) 0 #000;
+  cursor: pointer;
+  transition: box-shadow 120ms ease, transform 120ms ease, filter 120ms ease;
+}
+
+.pixelButton:hover:not(:disabled) {
+  box-shadow: var(--u) var(--u) 0 #000;
+  transform: translateY(-1px);
+  filter: saturate(1.08);
+}
+
+.pixelButton:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.flashHint {
+  margin: var(--u) 0 0;
+  color: #2c2c2c;
+  font-size: 16px;
+  line-height: calc(var(--u) * 3);
+}
+
+.systemsList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+}
+
+.systemRow {
+  height: 48px;
+  background: var(--row);
+  display: flex;
+  align-items: center;
+  border: 1px solid #a9a9a9;
+}
+
+.systemButton {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-family: "Iosevka", monospace;
+  font-size: 20px;
+  line-height: calc(var(--u) * 3);
+  padding: 0 calc(var(--u) * 2);
+  height: 100%;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+  position: relative;
+}
+
+.systemButtonActive {
+  background: #ffffff;
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 2px #2a2a2a;
+}
+
+.systemButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.gamesList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-start;
+}
+
+.gameRow {
+  height: 48px;
+  background: var(--row);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--u);
+  padding: 0 calc(var(--u) * 2);
+  border: 1px solid #00000010;
+}
+
+.gameName {
+  color: var(--accent);
+  font-family: "Iosevka", monospace;
+  font-size: 20px;
+  line-height: calc(var(--u) * 3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gameActions {
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+}
+
+.linkButton {
+  border: 2px solid var(--line);
+  background: linear-gradient(180deg, #ffffff 0%, #f1f1f1 100%);
+  color: var(--ink);
+  padding: calc(var(--u) / 2) calc(var(--u) * 1.5);
+  text-decoration: none;
+  font-family: "Iosevka", monospace;
+  font-size: 15px;
+  line-height: calc(var(--u) * 2);
+  box-shadow: 2px 2px 0 #00000055;
+  letter-spacing: 0.02em;
+  transition: background-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.linkButton:hover {
+  background: #fff;
+  box-shadow: 4px 4px 0 #00000077;
+  transform: translateY(-1px);
+}
+
+.miniButton {
+  border: 2px solid var(--line);
+  background: linear-gradient(180deg, #fff6f6 0%, #ffe9e9 100%);
+  color: var(--ink);
+  padding: calc(var(--u) / 2) calc(var(--u) * 1.5);
+  font-family: "Iosevka", monospace;
+  font-size: 15px;
+  line-height: calc(var(--u) * 2);
+  cursor: pointer;
+  box-shadow: 2px 2px 0 #00000055;
+  letter-spacing: 0.02em;
+  transition: background-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.miniButton:hover:not(:disabled) {
+  background: #fff0f0;
+  box-shadow: 4px 4px 0 #00000077;
+  transform: translateY(-1px);
+}
+
+.miniButton:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.subtleMessage {
+  margin: var(--u) 0 0;
+  font-size: 16px;
+  line-height: calc(var(--u) * 3);
+  color: #2c2c2c;
+}
+
+.errorMessage {
+  margin: var(--u) 0 0;
+  color: #840000;
+  font-size: 16px;
+  line-height: calc(var(--u) * 3);
+}
+
+.listTailAction {
+  margin-top: var(--u);
+}
+
+
+@media (max-width: 1099px) {
+  .title {
+    font-size: 20px;
+  }
+
+  .pixelButton {
+    font-size: 18px;
+  }
+
+  .gameName,
+  .systemButton,
+  .statusLine {
+    font-size: 18px;
+  }
+}
