@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { APIError, apiV1Url, ejectCartridge } from '../../api';
+import cartridgeImage from '../../../images/cartrighe-illu.png';
 import styles from './FlasherColumns.module.css';
 
 type CartridgeInfo = {
@@ -41,8 +42,6 @@ function formatErrorMessage(error: unknown): string {
 export type CartridgeColumnProps = {
   info: CartridgeInfo | null;
 };
-
-const cartridgeImage = 'https://www.figma.com/api/mcp/asset/90b5c898-5614-4010-bcab-09c0d6518c28';
 
 export function CartridgeColumn({ info }: CartridgeColumnProps) {
   const [ejectFlow, setEjectFlow] = useState<EjectFlowState>({ kind: 'idle' });
