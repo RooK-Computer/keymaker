@@ -102,6 +102,8 @@ export function MainView({ pollIntervalMs = 1000, onManageRetroPieClick }: MainV
     }
     return state.lastInfo;
   }, [state]);
+  const populatedSystems = currentInfo?.systems?.map((entry) => entry.system) ?? [];
+  const emptySystems = currentInfo?.emptySystems ?? [];
 
   useEffect(() => {
     if (!currentInfo) {
@@ -279,7 +281,10 @@ export function MainView({ pollIntervalMs = 1000, onManageRetroPieClick }: MainV
             <dd>{String(currentInfo.isRetroPie)}</dd>
 
             <dt>Systems</dt>
-            <dd>{(currentInfo.systems ?? []).length ? (currentInfo.systems ?? []).join(', ') : '(none)'}</dd>
+            <dd>{populatedSystems.length ? populatedSystems.join(', ') : '(none)'}</dd>
+
+            <dt>Empty systems</dt>
+            <dd>{emptySystems.length ? emptySystems.join(', ') : '(none)'}</dd>
           </dl>
         )}
 

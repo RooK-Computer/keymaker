@@ -1,22 +1,18 @@
 import { useState } from 'react';
+import { getCartridgeInfo } from '../../api';
 import styles from './FlasherColumns.module.css';
 
-type CartridgeInfo = {
-  isRetroPie: boolean;
-  systems: string[] | null;
-  present: boolean;
-};
+type CartridgeInfo = Awaited<ReturnType<typeof getCartridgeInfo>>;
 
 export type OSColumnProps = {
   info: CartridgeInfo | null;
   systems: string[];
   emptySystems: string[];
-  systemsLoading: boolean;
   selectedSystem: string | null;
   onSelectSystem: (system: string) => void;
 };
 
-export function OSColumn({ info, systems, emptySystems, systemsLoading, selectedSystem, onSelectSystem }: OSColumnProps) {
+export function OSColumn({ info, systems, emptySystems, selectedSystem, onSelectSystem }: OSColumnProps) {
   const [showEmptySystems, setShowEmptySystems] = useState(false);
   const hasSystems = systems.length > 0;
 
@@ -29,7 +25,6 @@ export function OSColumn({ info, systems, emptySystems, systemsLoading, selected
       ) : (
         <>
           <p className={styles.subtleMessage}>Detected: {info.isRetroPie ? 'RetroPie' : 'Unknown / unsupported'}</p>
-          {systemsLoading && <p className={styles.subtleMessage}>Checking emulator game libraries…</p>}
           {!hasSystems ? (
             <p className={styles.emptyText}>(none)</p>
           ) : (
