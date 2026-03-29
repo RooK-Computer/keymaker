@@ -155,12 +155,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        CartridgeSystemInfo: {
+            system: string;
+            filecount: number;
+        };
         CartridgeInfo: {
             present: boolean;
             mounted: boolean;
             isRetroPie: boolean;
-            /** @description RetroPie ROM system directories (null if not a RetroPie cartridge) */
-            systems: string[] | null;
+            /** @description RetroPie ROM systems that currently contain files (null if not a RetroPie cartridge) */
+            systems: components["schemas"]["CartridgeSystemInfo"][] | null;
+            /** @description RetroPie ROM systems that are present but currently empty (null if not a RetroPie cartridge) */
+            emptySystems: string[] | null;
             busy: boolean;
         };
         Ok: {

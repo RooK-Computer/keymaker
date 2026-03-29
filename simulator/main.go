@@ -95,7 +95,7 @@ func applyScenario(ctx context.Context, root, scenario string, info *state.Cartr
 	case "no-cartridge":
 		info.SetPresent(false)
 		info.SetMounted(false)
-		info.SetRetroPie(false, nil)
+		info.SetRetroPie(false, nil, nil)
 		return nil
 	case "unknown":
 		if err := os.MkdirAll(root, 0o755); err != nil {
@@ -103,7 +103,7 @@ func applyScenario(ctx context.Context, root, scenario string, info *state.Cartr
 		}
 		info.SetPresent(true)
 		info.SetMounted(false)
-		info.SetRetroPie(false, nil)
+		info.SetRetroPie(false, nil, nil)
 		return nil
 	case "retropie", "":
 		if err := seedRetroPie(root); err != nil {
@@ -111,7 +111,10 @@ func applyScenario(ctx context.Context, root, scenario string, info *state.Cartr
 		}
 		info.SetPresent(true)
 		info.SetMounted(false)
-		info.SetRetroPie(true, []string{"nes", "snes"})
+		info.SetRetroPie(true, []state.CartridgeSystemInfo{
+			{System: "nes", FileCount: 1},
+			{System: "snes", FileCount: 1},
+		}, []string{"pc"})
 		return nil
 	default:
 		return fmt.Errorf("unknown scenario %q", scenario)
@@ -120,10 +123,16 @@ func applyScenario(ctx context.Context, root, scenario string, info *state.Cartr
 
 func seedRetroPie(root string) error {
 	romsRoot := filepath.Join(root, "home/pi/RetroPie/roms")
+	if err := os.RemoveAll(romsRoot); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Join(romsRoot, "nes"), 0o755); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Join(romsRoot, "snes"), 0o755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Join(romsRoot, "pc"), 0o755); err != nil {
 		return err
 	}
 	// Seed a couple of tiny dummy files so list/download/upload flows have something to work with.

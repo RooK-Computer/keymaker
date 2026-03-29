@@ -85,6 +85,44 @@ def _request_raw_chunked_status(base: str, path: str, payload: bytes) -> int:
     return int(parts[1])
 
 
+def _validate_cartridge_info(info: object) -> tuple[list[str], str, str]:
+    if not isinstance(info, dict):
+        _fail("/cartridgeinfo should return a JSON object")
+
+    for key in ("present", "mounted", "isRetroPie", "systems", "emptySystems", "busy"):
+        if key not in info:
+            _fail(f"/cartridgeinfo missing key {key!r}")
+
+    systems = info["systems"]
+    if not isinstance(systems, list):
+        _fail("/cartridgeinfo systems should be a JSON array")
+
+    system_counts: dict[str, int] = {}
+    for entry in systems:
+        if not isinstance(entry, dict):
+            _fail("/cartridgeinfo systems entries should be JSON objects")
+        system_name = entry.get("system")
+        file_count = entry.get("filecount")
+        if not isinstance(system_name, str):
+            _fail("/cartridgeinfo systems entries need a string 'system'")
+        if not isinstance(file_count, int):
+            _fail("/cartridgeinfo systems entries need an integer 'filecount'")
+        system_counts[system_name] = file_count
+
+    expected_counts = {"nes": 1, "snes": 1}
+    if system_counts != expected_counts:
+        _fail(f"/cartridgeinfo systems mismatch: expected {expected_counts}, got {system_counts}")
+
+    empty_systems = info["emptySystems"]
+    if not isinstance(empty_systems, list) or not all(isinstance(x, str) for x in empty_systems):
+        _fail("/cartridgeinfo emptySystems should be a JSON string array")
+    if empty_systems != ["pc"]:
+        _fail(f"/cartridgeinfo emptySystems mismatch: expected ['pc'], got {empty_systems}")
+
+    all_systems = sorted([*system_counts.keys(), *empty_systems])
+    return all_systems, "nes", "pc"
+
+
 def main() -> None:
     base = os.environ.get("KEYMAKER_API_BASE", "http://127.0.0.1:8080").strip()
     if not base:
@@ -97,9 +135,7 @@ def main() -> None:
     if status != 200:
         _fail(f"GET /api/v1/cartridgeinfo: expected 200, got {status}")
     info = json.loads(body.decode("utf-8"))
-    for key in ("present", "mounted", "isRetroPie", "systems", "busy"):
-        if key not in info:
-            _fail(f"/cartridgeinfo missing key {key!r}")
+    expected_systems, non_empty_system, empty_system = _validate_cartridge_info(info)
 
     # /retropie
     status, _, body = _request("GET", base, "/api/v1/retropie")
@@ -108,27 +144,33 @@ def main() -> None:
     systems = json.loads(body.decode("utf-8"))
     if not isinstance(systems, list) or not all(isinstance(x, str) for x in systems):
         _fail("/retropie should return a JSON string array")
-    if not systems:
-        _fail("/retropie returned empty system list")
+    if sorted(systems) != expected_systems:
+        _fail(f"/retropie systems mismatch: expected {expected_systems}, got {systems}")
 
-    system = systems[0]
+    # /retropie/{empty_system}
+    status, _, body = _request("GET", base, f"/api/v1/retropie/{empty_system}")
+    if status != 200:
+        _fail(f"GET /api/v1/retropie/{empty_system}: expected 200, got {status}")
+    empty_games = json.loads(body.decode("utf-8"))
+    if empty_games != []:
+        _fail(f"/retropie/{empty_system} should return an empty list")
 
     # /retropie/{system}
-    status, _, body = _request("GET", base, f"/api/v1/retropie/{system}")
+    status, _, body = _request("GET", base, f"/api/v1/retropie/{non_empty_system}")
     if status != 200:
-        _fail(f"GET /api/v1/retropie/{system}: expected 200, got {status}")
+        _fail(f"GET /api/v1/retropie/{non_empty_system}: expected 200, got {status}")
     games = json.loads(body.decode("utf-8"))
     if not isinstance(games, list) or not all(isinstance(x, str) for x in games):
-        _fail(f"/retropie/{system} should return a JSON string array")
+        _fail(f"/retropie/{non_empty_system} should return a JSON string array")
     if not games:
-        _fail(f"/retropie/{system} returned empty game list")
+        _fail(f"/retropie/{non_empty_system} returned empty game list")
 
     game = games[0]
 
     # download should return bytes and Content-Disposition
-    status, headers, _ = _request("GET", base, f"/api/v1/retropie/{system}/{game}")
+    status, headers, _ = _request("GET", base, f"/api/v1/retropie/{non_empty_system}/{game}")
     if status != 200:
-        _fail(f"GET /api/v1/retropie/{system}/{game}: expected 200, got {status}")
+        _fail(f"GET /api/v1/retropie/{non_empty_system}/{game}: expected 200, got {status}")
     header_keys = {k.lower() for k in headers.keys()}
     if "content-disposition" not in header_keys:
         _fail("download response missing Content-Disposition header")
@@ -139,7 +181,7 @@ def main() -> None:
     status, _, body = _request(
         "POST",
         base,
-        f"/api/v1/retropie/{system}/{upload_name}",
+        f"/api/v1/retropie/{non_empty_system}/{upload_name}",
         body=payload,
         headers={"Content-Type": "application/octet-stream", "Content-Length": str(len(payload))},
     )
@@ -149,7 +191,7 @@ def main() -> None:
     if upload_resp.get("ok") is not True:
         _fail("POST upload: expected {ok:true}")
 
-    status, _, body = _request("DELETE", base, f"/api/v1/retropie/{system}/{upload_name}")
+    status, _, body = _request("DELETE", base, f"/api/v1/retropie/{non_empty_system}/{upload_name}")
     if status != 200:
         _fail(f"DELETE game: expected 200, got {status}")
     delete_resp = json.loads(body.decode("utf-8"))

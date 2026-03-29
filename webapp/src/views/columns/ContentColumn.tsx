@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { APIError, apiV1Url, deleteRetroPieGame, listRetroPieGames, uploadRetroPieGame } from '../../api';
+import { APIError, apiV1Url, deleteRetroPieGame, getCartridgeInfo, listRetroPieGames, uploadRetroPieGame } from '../../api';
 import styles from './FlasherColumns.module.css';
 
 const nameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
@@ -36,12 +36,7 @@ type UploadState =
   | { kind: 'done'; filename: string }
   | { kind: 'error'; message: string };
 
-type CartridgeInfo = {
-  present: boolean;
-  isRetroPie: boolean;
-  systems: string[] | null;
-  busy: boolean;
-};
+type CartridgeInfo = Awaited<ReturnType<typeof getCartridgeInfo>>;
 
 export type ContentColumnProps = {
   info: CartridgeInfo | null;

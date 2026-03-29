@@ -1,15 +1,9 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { APIError, apiV1Url, ejectCartridge } from '../../api';
+import { APIError, apiV1Url, ejectCartridge, getCartridgeInfo } from '../../api';
 import cartridgeImage from '../../../images/cartrighe-illu.png';
 import styles from './FlasherColumns.module.css';
 
-type CartridgeInfo = {
-  present: boolean;
-  mounted: boolean;
-  isRetroPie: boolean;
-  systems: string[] | null;
-  busy: boolean;
-};
+type CartridgeInfo = Awaited<ReturnType<typeof getCartridgeInfo>>;
 
 type EjectFlowState =
   | { kind: 'idle' }

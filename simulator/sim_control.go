@@ -108,7 +108,7 @@ func (c *SimControl) Eject(reqCtx context.Context) error {
 
 	// Eject clears cartridge presence and any cartridge-specific metadata.
 	c.info.SetMounted(false)
-	c.info.SetRetroPie(false, nil)
+	c.info.SetRetroPie(false, nil, nil)
 	c.info.SetPresent(false)
 
 	// Auto re-insert after 10 seconds.

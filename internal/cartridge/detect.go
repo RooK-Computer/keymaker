@@ -3,11 +3,17 @@ package cartridge
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/rook-computer/keymaker/internal/state"
 	"github.com/rook-computer/keymaker/internal/system"
 )
+
+const retroPieRomsRoot = "/cartridge/home/pi/RetroPie/roms"
 
 type Logger interface {
 	Infof(component string, format string, args ...interface{})
@@ -94,19 +100,27 @@ func DetectAndUpdate(ctx context.Context, runner system.Runner, logger Logger, o
 		}
 	}
 
-	var systems []string
+	var systemsWithFiles []state.CartridgeSystemInfo
+	var emptySystems []string
 	if isRetroPie {
-		systems, err = system.RetroPieSystems(ctx, runner)
+		var detectedSystems []string
+		detectedSystems, err = system.RetroPieSystems(ctx, runner)
 		if err != nil {
 			// Per implementation plan: if systems fail, overrule and treat as not RetroPie.
 			if logger != nil {
 				logger.Errorf("system", "retropie systems failed, treating as non-retropie: %v", err)
 			}
 			isRetroPie = false
-			systems = nil
+			systemsWithFiles = nil
+			emptySystems = nil
+		} else {
+			systemsWithFiles, emptySystems, err = collectRetroPieSystemInfo(retroPieRomsRoot, detectedSystems)
+			if err != nil {
+				return err
+			}
 		}
 	}
-	cartridgeInfo.SetRetroPie(isRetroPie, systems)
+	cartridgeInfo.SetRetroPie(isRetroPie, systemsWithFiles, emptySystems)
 
 	// If the cartridge wasn't mounted before, ensure it isn't left mounted.
 	if !mountedBefore {
@@ -127,4 +141,52 @@ func DetectAndUpdate(ctx context.Context, runner system.Runner, logger Logger, o
 	}
 
 	return nil
+}
+
+func collectRetroPieSystemInfo(romsRoot string, detectedSystems []string) ([]state.CartridgeSystemInfo, []string, error) {
+	systemsWithFiles := make([]state.CartridgeSystemInfo, 0, len(detectedSystems))
+	emptySystems := make([]string, 0, len(detectedSystems))
+
+	for _, systemName := range detectedSystems {
+		visibleEntryCount, err := countVisibleEntries(filepath.Join(romsRoot, systemName))
+		if err != nil {
+			return nil, nil, err
+		}
+		if visibleEntryCount == 0 {
+			emptySystems = append(emptySystems, systemName)
+			continue
+		}
+		systemsWithFiles = append(systemsWithFiles, state.CartridgeSystemInfo{
+			System:    systemName,
+			FileCount: visibleEntryCount,
+		})
+	}
+
+	sort.Slice(systemsWithFiles, func(leftIndex, rightIndex int) bool {
+		return systemsWithFiles[leftIndex].System < systemsWithFiles[rightIndex].System
+	})
+	sort.Strings(emptySystems)
+
+	return systemsWithFiles, emptySystems, nil
+}
+
+func countVisibleEntries(directoryPath string) (int, error) {
+	entries, err := os.ReadDir(directoryPath)
+	if err != nil {
+		return 0, err
+	}
+
+	visibleEntryCount := 0
+	for _, entry := range entries {
+		entryName := strings.TrimSpace(entry.Name())
+		if entryName == "" {
+			continue
+		}
+		if strings.HasPrefix(entryName, ".") {
+			continue
+		}
+		visibleEntryCount++
+	}
+
+	return visibleEntryCount, nil
 }

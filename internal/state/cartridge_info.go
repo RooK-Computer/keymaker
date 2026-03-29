@@ -2,22 +2,29 @@ package state
 
 import "sync"
 
+type CartridgeSystemInfo struct {
+	System    string `json:"system"`
+	FileCount int    `json:"filecount"`
+}
+
 type CartridgeInfoSnapshot struct {
-	Present    bool
-	Mounted    bool
-	IsRetroPie bool
-	Systems    []string
-	Busy       bool
+	Present      bool
+	Mounted      bool
+	IsRetroPie   bool
+	Systems      []CartridgeSystemInfo
+	EmptySystems []string
+	Busy         bool
 }
 
 type CartridgeInfo struct {
 	mu sync.RWMutex
 
-	present    bool
-	mounted    bool
-	isRetroPie bool
-	systems    []string
-	busy       bool
+	present      bool
+	mounted      bool
+	isRetroPie   bool
+	systems      []CartridgeSystemInfo
+	emptySystems []string
+	busy         bool
 }
 
 var (
@@ -37,11 +44,12 @@ func (info *CartridgeInfo) Snapshot() CartridgeInfoSnapshot {
 	defer info.mu.RUnlock()
 
 	return CartridgeInfoSnapshot{
-		Present:    info.present,
-		Mounted:    info.mounted,
-		IsRetroPie: info.isRetroPie,
-		Systems:    cloneStrings(info.systems),
-		Busy:       info.busy,
+		Present:      info.present,
+		Mounted:      info.mounted,
+		IsRetroPie:   info.isRetroPie,
+		Systems:      cloneSystemInfos(info.systems),
+		EmptySystems: cloneStrings(info.emptySystems),
+		Busy:         info.busy,
 	}
 }
 
@@ -51,6 +59,7 @@ func (info *CartridgeInfo) Reset() {
 	info.mounted = false
 	info.isRetroPie = false
 	info.systems = nil
+	info.emptySystems = nil
 	info.busy = false
 	info.mu.Unlock()
 }
@@ -73,13 +82,15 @@ func (info *CartridgeInfo) SetBusy(busy bool) {
 	info.mu.Unlock()
 }
 
-func (info *CartridgeInfo) SetRetroPie(isRetroPie bool, systems []string) {
+func (info *CartridgeInfo) SetRetroPie(isRetroPie bool, systems []CartridgeSystemInfo, emptySystems []string) {
 	info.mu.Lock()
 	info.isRetroPie = isRetroPie
 	if isRetroPie {
-		info.systems = cloneStrings(systems)
+		info.systems = cloneSystemInfos(systems)
+		info.emptySystems = cloneStrings(emptySystems)
 	} else {
 		info.systems = nil
+		info.emptySystems = nil
 	}
 	info.mu.Unlock()
 }
@@ -89,6 +100,15 @@ func cloneStrings(input []string) []string {
 		return nil
 	}
 	out := make([]string, len(input))
+	copy(out, input)
+	return out
+}
+
+func cloneSystemInfos(input []CartridgeSystemInfo) []CartridgeSystemInfo {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make([]CartridgeSystemInfo, len(input))
 	copy(out, input)
 	return out
 }

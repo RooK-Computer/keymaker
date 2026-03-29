@@ -1,23 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
-import { APIError, getCartridgeInfo, listRetroPieGames } from './api';
+import { APIError, getCartridgeInfo } from './api';
 import styles from './App.module.css';
 import { CartridgeColumn } from './views/columns/CartridgeColumn';
 import { ContentColumn } from './views/columns/ContentColumn';
 import { OSColumn } from './views/columns/OSColumn';
 
+type CartridgeInfo = Awaited<ReturnType<typeof getCartridgeInfo>>;
+
 export function App() {
   const [infoState, setInfoState] = useState<
     | { kind: 'loading'; info: null; error: null }
-    | { kind: 'ready'; info: Awaited<ReturnType<typeof getCartridgeInfo>>; error: null }
-    | { kind: 'error'; info: Awaited<ReturnType<typeof getCartridgeInfo>> | null; error: string }
+    | { kind: 'ready'; info: CartridgeInfo; error: null }
+    | { kind: 'error'; info: CartridgeInfo | null; error: string }
   >({ kind: 'loading', info: null, error: null });
   const [activeColumn, setActiveColumn] = useState<'cart' | 'os' | 'content'>('cart');
   const [selectedSystem, setSelectedSystem] = useState<string | null>(null);
-  const [systemAvailability, setSystemAvailability] = useState<{
-    withGames: string[];
-    withoutGames: string[];
-    loading: boolean;
-  }>({ withGames: [], withoutGames: [], loading: false });
   const [isNarrow, setIsNarrow] = useState<boolean>(window.innerWidth < 1100);
 
   useEffect(() => {
@@ -89,13 +86,15 @@ export function App() {
   }, []);
 
   const info = infoState.info;
-  const systemsKey = useMemo(() => (info?.systems ?? []).join('|'), [info?.systems]);
+  const systemsWithGames = useMemo(() => (info?.systems ?? []).map((entry) => entry.system), [info?.systems]);
+  const emptySystems = useMemo(() => info?.emptySystems ?? [], [info?.emptySystems]);
+  const systemsKey = useMemo(() => `${systemsWithGames.join('|')}::${emptySystems.join('|')}`, [emptySystems, systemsWithGames]);
   const osResetKey = useMemo(() => {
     if (!info) {
       return 'none';
     }
-    return `${info.present}:${info.isRetroPie}:${(info.systems ?? []).join('|')}:${info.busy}`;
-  }, [info]);
+    return `${info.present}:${info.isRetroPie}:${systemsKey}:${info.busy}`;
+  }, [info, systemsKey]);
 
   const contentResetKey = osResetKey;
 
@@ -127,61 +126,15 @@ export function App() {
   const unavailableContent = !!info?.present && !info.isRetroPie;
 
   useEffect(() => {
-    const systems = info?.systems ?? [];
-    if (!info?.present || !info.isRetroPie || systems.length === 0) {
-      setSystemAvailability({ withGames: systems, withoutGames: [], loading: false });
-      return;
-    }
-
-    let cancelled = false;
-    setSystemAvailability((prev) => ({ ...prev, loading: true }));
-
-    void (async () => {
-      const prevMap = new Map<string, boolean>();
-      for (const s of systemAvailability.withGames) {
-        prevMap.set(s, true);
-      }
-      for (const s of systemAvailability.withoutGames) {
-        prevMap.set(s, false);
-      }
-
-      const results = await Promise.all(
-        systems.map(async (system) => {
-          try {
-            const games = await listRetroPieGames(system);
-            return { system, hasGames: games.length > 0 };
-          } catch {
-            // Keep prior classification to avoid UI flicker on transient failures.
-            return { system, hasGames: prevMap.get(system) ?? false };
-          }
-        })
-      );
-
-      if (cancelled) {
-        return;
-      }
-
-      const withGames = results.filter((r) => r.hasGames).map((r) => r.system);
-      const withoutGames = results.filter((r) => !r.hasGames).map((r) => r.system);
-      setSystemAvailability({ withGames, withoutGames, loading: false });
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [info?.present, info?.isRetroPie, systemsKey]);
-
-  useEffect(() => {
     if (!info?.present || !info.isRetroPie) {
       setSelectedSystem(null);
       return;
     }
-    const fallbackSystems = info.systems ?? [];
-    const systems = systemAvailability.withGames.length > 0 ? systemAvailability.withGames : fallbackSystems;
-    if (!selectedSystem || !systems.includes(selectedSystem)) {
-      setSelectedSystem(systems.length > 0 ? systems[0] : null);
+    const availableSystems = [...systemsWithGames, ...emptySystems];
+    if (!selectedSystem || !availableSystems.includes(selectedSystem)) {
+      setSelectedSystem(systemsWithGames[0] ?? emptySystems[0] ?? null);
     }
-  }, [info?.present, info?.isRetroPie, info?.systems, selectedSystem, systemAvailability.withGames]);
+  }, [emptySystems, info?.present, info?.isRetroPie, selectedSystem, systemsWithGames]);
 
   return (
     <main className={styles.container}>
@@ -210,9 +163,8 @@ export function App() {
         <article className={`${styles.column} ${columnClass('os')}`}>
           <OSColumn
             info={info}
-            systems={systemAvailability.withGames}
-            emptySystems={systemAvailability.withoutGames}
-            systemsLoading={systemAvailability.loading}
+            systems={systemsWithGames}
+            emptySystems={emptySystems}
             selectedSystem={selectedSystem}
             onSelectSystem={(system) => {
               setSelectedSystem(system);
