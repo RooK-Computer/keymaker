@@ -19,23 +19,23 @@ The requirements are as follows: the web frontend needs to know how many of the 
 ### step one: revise api spec
 
 First of all we have to update the api spec to reflect this change. There is one API call that needs to provide more information: /cartridgeinfo. currently, the systems list is a string array. the systems property needs to provide an array of objects. for each object two properties need to be present: system (the old string value) and filecount.
-In addition to the systems array, wich should only contain systems with present files, an additional property needs to be introduced: empty_systems, which is an array of strings and contains only those game systems on the cartridge, that are empty.
+In addition to the systems array, wich should only contain systems with present files, an additional property needs to be introduced: emptySystems, which is an array of strings and contains only those game systems on the cartridge, that are empty.
 
 Update the api spec to reflect these changes.
 
-### step two: update the simulator
-
-as a first step to test the api, update the simulator to reply according to the just updated spec from the previous step.
-
-### step three: prepare the main application
+### step two: prepare the main application
 
 the main application stores the data for the cartridgeinfo request in memory (see internal/state/cartridge_info).
 that structure needs to be updated to be able to store the data needed by the web application. To ensure that the application continues to compile, put all systems found during cartridge detection (see internal/cartridge/detect.go) into the empty systems array, as that has the same structure as before.
 
-### step four: collect the data
+### step three: update the api implementation of /cartridgeinfo
+
+Now that the internal data structure can represent the new information, update the cartridgeinfo api call to reply according to the updated spec.
+
+### step four: update the simulator
+
+as a first step to test the api, update the simulator to reply according to the just updated spec from the previous steps.
+
+### step five: collect the data
 
 As the internal data structures are now on par with the new api, update the cartridge detection logic to collect all data needed. That should be done in cartridge/detect.go
-
-### step five: update the api implementation of /cartridgeinfo
-
-Now everything should be in place to finally implement the real cartridgeinfo api call changes. So thats what should be done now.
