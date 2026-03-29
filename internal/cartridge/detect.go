@@ -94,19 +94,19 @@ func DetectAndUpdate(ctx context.Context, runner system.Runner, logger Logger, o
 		}
 	}
 
-	var systems []string
+	var emptySystems []string
 	if isRetroPie {
-		systems, err = system.RetroPieSystems(ctx, runner)
+		emptySystems, err = system.RetroPieSystems(ctx, runner)
 		if err != nil {
 			// Per implementation plan: if systems fail, overrule and treat as not RetroPie.
 			if logger != nil {
 				logger.Errorf("system", "retropie systems failed, treating as non-retropie: %v", err)
 			}
 			isRetroPie = false
-			systems = nil
+			emptySystems = nil
 		}
 	}
-	cartridgeInfo.SetRetroPie(isRetroPie, systems)
+	cartridgeInfo.SetRetroPie(isRetroPie, nil, emptySystems)
 
 	// If the cartridge wasn't mounted before, ensure it isn't left mounted.
 	if !mountedBefore {

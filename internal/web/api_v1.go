@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/rook-computer/keymaker/internal/state"
 )
 
 type apiError struct {
@@ -25,11 +27,12 @@ type okResponse struct {
 }
 
 type cartridgeInfoResponse struct {
-	Present    bool     `json:"present"`
-	Mounted    bool     `json:"mounted"`
-	IsRetroPie bool     `json:"isRetroPie"`
-	Systems    []string `json:"systems"`
-	Busy       bool     `json:"busy"`
+	Present      bool                        `json:"present"`
+	Mounted      bool                        `json:"mounted"`
+	IsRetroPie   bool                        `json:"isRetroPie"`
+	Systems      []state.CartridgeSystemInfo `json:"systems"`
+	EmptySystems []string                    `json:"emptySystems"`
+	Busy         bool                        `json:"busy"`
 }
 
 func apiV1Router(ejectFunc func(ctx context.Context) error, flashFunc func(ctx context.Context, reader io.Reader) error) http.Handler {
@@ -146,7 +149,7 @@ func handleRetroPie(w http.ResponseWriter, r *http.Request, deps APIV1Deps) {
 			writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 			return
 		}
-		writeJSON(w, http.StatusOK, snap.Systems)
+		writeJSON(w, http.StatusOK, cartridgeSystemNames(snap))
 		return
 	}
 
@@ -154,7 +157,7 @@ func handleRetroPie(w http.ResponseWriter, r *http.Request, deps APIV1Deps) {
 	rel := strings.TrimPrefix(path, "/retropie/")
 	rel = strings.Trim(rel, "/")
 	if rel == "" {
-		writeJSON(w, http.StatusOK, snap.Systems)
+		writeJSON(w, http.StatusOK, cartridgeSystemNames(snap))
 		return
 	}
 
@@ -166,7 +169,7 @@ func handleRetroPie(w http.ResponseWriter, r *http.Request, deps APIV1Deps) {
 		}
 
 		systemName := parts[0]
-		if !containsString(snap.Systems, systemName) {
+		if !hasCartridgeSystem(snap, systemName) {
 			writeAPIError(w, http.StatusNotFound, "system_not_found", "system not found")
 			return
 		}
@@ -192,7 +195,7 @@ func handleRetroPie(w http.ResponseWriter, r *http.Request, deps APIV1Deps) {
 	if len(parts) == 2 {
 		systemName := parts[0]
 		gameName := parts[1]
-		if !containsString(snap.Systems, systemName) {
+		if !hasCartridgeSystem(snap, systemName) {
 			writeAPIError(w, http.StatusNotFound, "system_not_found", "system not found")
 			return
 		}
@@ -572,6 +575,24 @@ func deleteGame(romsRoot, systemName, gameName string) error {
 	return os.Remove(gamePath)
 }
 
+func cartridgeSystemNames(snap state.CartridgeInfoSnapshot) []string {
+	systemNames := make([]string, 0, len(snap.Systems)+len(snap.EmptySystems))
+	for _, systemInfo := range snap.Systems {
+		systemNames = append(systemNames, systemInfo.System)
+	}
+	systemNames = append(systemNames, snap.EmptySystems...)
+	return systemNames
+}
+
+func hasCartridgeSystem(snap state.CartridgeInfoSnapshot, needle string) bool {
+	for _, systemInfo := range snap.Systems {
+		if systemInfo.System == needle {
+			return true
+		}
+	}
+	return containsString(snap.EmptySystems, needle)
+}
+
 func containsString(haystack []string, needle string) bool {
 	for _, v := range haystack {
 		if v == needle {
@@ -593,11 +614,12 @@ func handleCartridgeInfo(w http.ResponseWriter, r *http.Request, deps APIV1Deps)
 
 	snap := deps.Cartridge.Snapshot()
 	resp := cartridgeInfoResponse{
-		Present:    snap.Present,
-		Mounted:    snap.Mounted,
-		IsRetroPie: snap.IsRetroPie,
-		Systems:    snap.Systems,
-		Busy:       snap.Busy,
+		Present:      snap.Present,
+		Mounted:      snap.Mounted,
+		IsRetroPie:   snap.IsRetroPie,
+		Systems:      snap.Systems,
+		EmptySystems: snap.EmptySystems,
+		Busy:         snap.Busy,
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

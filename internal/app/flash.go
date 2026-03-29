@@ -32,7 +32,7 @@ func (app *App) HandleFlash(ctx context.Context, reader io.Reader) error {
 	}
 
 	// Cartridge content will change; clear cached type/systems.
-	state.GetCartridgeInfo().SetRetroPie(false, nil)
+	state.GetCartridgeInfo().SetRetroPie(false, nil, nil)
 
 	if app.Store != nil {
 		app.Store.SetPhase(state.FLASHING)
