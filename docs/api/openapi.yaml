@@ -302,6 +302,17 @@ components:
             $ref: "#/components/schemas/Error"
 
   schemas:
+    CartridgeSystemInfo:
+      type: object
+      additionalProperties: false
+      properties:
+        system:
+          type: string
+        filecount:
+          type: integer
+          minimum: 0
+      required: [system, filecount]
+
     CartridgeInfo:
       type: object
       additionalProperties: false
@@ -313,13 +324,18 @@ components:
         isRetroPie:
           type: boolean
         systems:
-          description: RetroPie ROM system directories (null if not a RetroPie cartridge)
+          description: RetroPie ROM systems that currently contain files (null if not a RetroPie cartridge)
+          type: [array, "null"]
+          items:
+            $ref: "#/components/schemas/CartridgeSystemInfo"
+        emptySystems:
+          description: RetroPie ROM systems that are present but currently empty (null if not a RetroPie cartridge)
           type: [array, "null"]
           items:
             type: string
         busy:
           type: boolean
-      required: [present, mounted, isRetroPie, systems, busy]
+      required: [present, mounted, isRetroPie, systems, emptySystems, busy]
 
     Ok:
       type: object
