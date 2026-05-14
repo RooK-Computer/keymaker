@@ -18,6 +18,7 @@ tags:
   - name: Cartridge
   - name: RetroPie
   - name: Flash
+  - name: WiFi
 
 paths:
   /cartridgeinfo:
@@ -67,6 +68,57 @@ paths:
           $ref: "#/components/responses/Conflict"
         "411":
           $ref: "#/components/responses/LengthRequired"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /wifi/networks:
+    get:
+      tags: [WiFi]
+      summary: List visible WiFi networks
+      description: |
+        Returns the cached list of visible WiFi network names.
+
+        The list is gathered asynchronously in the background from WiFi scans,
+        so it reflects recently observed networks rather than a synchronous scan
+        triggered by this request.
+      operationId: listVisibleWiFiNetworks
+      responses:
+        "200":
+          description: Cached list of visible WiFi SSIDs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VisibleWiFiNetworks"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /wifi/join:
+    post:
+      tags: [WiFi]
+      summary: Request a switch to another WiFi network
+      description: |
+        Requests that the device join the specified WiFi network.
+
+        This operation is a best-effort handoff. If validation fails or the join
+        command fails before the network switch starts, the API returns a normal
+        JSON error response. Once the switch is accepted, the caller may lose the
+        connection before any success response is received, so clients must not
+        depend on a success payload.
+      operationId: joinWiFiNetwork
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JoinWiFiRequest"
+      responses:
+        "202":
+          description: |
+            The WiFi switch request was accepted. The client may disconnect before
+            receiving this response, so callers must not rely on it as a success
+            signal.
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -302,6 +354,23 @@ components:
             $ref: "#/components/schemas/Error"
 
   schemas:
+    VisibleWiFiNetworks:
+      type: array
+      items:
+        type: string
+      description: Cached list of visible WiFi SSIDs gathered asynchronously.
+
+    JoinWiFiRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        ssid:
+          type: string
+          minLength: 1
+        password:
+          type: string
+      required: [ssid, password]
+
     CartridgeSystemInfo:
       type: object
       additionalProperties: false
