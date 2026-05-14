@@ -8,6 +8,8 @@ More details will be added lateron.
 This implementation plan has a heritage; all prior ones are considered common knowldege.
 It is important to keep one thing in mind when writing code: its not for the machines, its for humans. Keep that in mind, and thus refrain using single-character variable names. Instead come up with useful names for the variables.
 
+Also important: the frontend is built by a different team. We have no authority to change frontend code.
+
 ## goal
 
 Currently, the software configures the wifi hardware to run in Access point mode. Once the user has conected to it using the web UI built by the frontend Team, it should be possible for the user to let the console join another wifi network.
