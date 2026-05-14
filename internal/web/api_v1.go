@@ -35,6 +35,11 @@ type cartridgeInfoResponse struct {
 	Busy         bool                        `json:"busy"`
 }
 
+type joinWiFiRequest struct {
+	SSID     *string `json:"ssid"`
+	Password *string `json:"password"`
+}
+
 func apiV1Router(ejectFunc func(ctx context.Context) error, flashFunc func(ctx context.Context, reader io.Reader) error) http.Handler {
 	// Backwards-compatible defaults: keep the existing device behavior
 	// (mount via scripts, roms under /cartridge/...) unless an entrypoint
@@ -47,6 +52,8 @@ func apiV1RouterWithDeps(handlers APIV1Handlers, deps APIV1Deps) http.Handler {
 	deps = deps.withDefaults()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/cartridgeinfo", func(w http.ResponseWriter, r *http.Request) { handleCartridgeInfo(w, r, deps) })
+	mux.HandleFunc("/wifi/networks", func(w http.ResponseWriter, r *http.Request) { handleVisibleWiFiNetworks(w, r, deps) })
+	mux.HandleFunc("/wifi/join", func(w http.ResponseWriter, r *http.Request) { handleJoinWiFi(w, r, deps) })
 	mux.HandleFunc("/retropie", func(w http.ResponseWriter, r *http.Request) { handleRetroPie(w, r, deps) })
 	mux.HandleFunc("/retropie/", func(w http.ResponseWriter, r *http.Request) { handleRetroPie(w, r, deps) })
 	mux.HandleFunc("/eject", func(w http.ResponseWriter, r *http.Request) {
@@ -116,6 +123,52 @@ func handleFlash(w http.ResponseWriter, r *http.Request, deps APIV1Deps, flashFu
 		return
 	}
 	writeJSON(w, http.StatusAccepted, okResponse{OK: true})
+}
+
+func handleVisibleWiFiNetworks(w http.ResponseWriter, r *http.Request, deps APIV1Deps) {
+	if r.Method != http.MethodGet {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+
+	networks, err := deps.VisibleWiFiNetworks.ListVisibleWiFiNetworks(r.Context())
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "wifi_networks_failed", err.Error())
+		return
+	}
+	if networks == nil {
+		networks = []string{}
+	}
+	writeJSON(w, http.StatusOK, networks)
+}
+
+func handleJoinWiFi(w http.ResponseWriter, r *http.Request, deps APIV1Deps) {
+	if r.Method != http.MethodPost {
+		writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
+		return
+	}
+
+	var req joinWiFiRequest
+	if err := decodeSingleJSONObject(r, &req); err != nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_json", err.Error())
+		return
+	}
+
+	if req.SSID == nil || strings.TrimSpace(*req.SSID) == "" {
+		writeAPIError(w, http.StatusBadRequest, "invalid_ssid", "ssid is required")
+		return
+	}
+	if req.Password == nil {
+		writeAPIError(w, http.StatusBadRequest, "invalid_password", "password is required")
+		return
+	}
+
+	if err := deps.WiFiJoiner.RequestWiFiJoin(r.Context(), strings.TrimSpace(*req.SSID), *req.Password); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "wifi_join_failed", err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func handleRetroPie(w http.ResponseWriter, r *http.Request, deps APIV1Deps) {
@@ -379,6 +432,23 @@ var errLengthRequired = &apiSimpleError{Message: "Content-Length header is requi
 type apiSimpleError struct{ Message string }
 
 func (e *apiSimpleError) Error() string { return e.Message }
+
+func decodeSingleJSONObject(r *http.Request, dst any) error {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dst); err != nil {
+		return err
+	}
+
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return &apiSimpleError{Message: "request body must contain a single JSON object"}
+		}
+		return err
+	}
+	return nil
+}
 
 func uploadGame(romsRoot, systemName, gameName string, body io.Reader, contentLength int64) error {
 	romSystemDir := filepath.Join(romsRoot, systemName)

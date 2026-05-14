@@ -44,6 +44,17 @@ def _wait_up(base: str, timeout_s: float = 5.0) -> None:
     _fail(f"simulator did not become ready: {last_error}")
 
 
+def _wait_down(base: str, timeout_s: float = 5.0) -> None:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        try:
+            _request("GET", base, "/api/v1/cartridgeinfo")
+        except Exception:
+            return
+        time.sleep(0.1)
+    _fail("simulator did not become unavailable")
+
+
 def _request_raw_chunked_status(base: str, path: str, payload: bytes) -> int:
     parsed = urlparse(base)
     if parsed.scheme != "http":
@@ -123,6 +134,18 @@ def _validate_cartridge_info(info: object) -> tuple[list[str], str, str]:
     return all_systems, "nes", "pc"
 
 
+def _validate_wifi_networks(networks: object) -> None:
+    expected_networks = [
+        "Bielefelder Luftbruecke",
+        "Das Internet Ist Neuland",
+        "Koeln Ist Ein WLAN",
+    ]
+    if not isinstance(networks, list) or not all(isinstance(x, str) for x in networks):
+        _fail("/wifi/networks should return a JSON string array")
+    if sorted(networks) != expected_networks:
+        _fail(f"/wifi/networks mismatch: expected {expected_networks}, got {networks}")
+
+
 def main() -> None:
     base = os.environ.get("KEYMAKER_API_BASE", "http://127.0.0.1:8080").strip()
     if not base:
@@ -136,6 +159,13 @@ def main() -> None:
         _fail(f"GET /api/v1/cartridgeinfo: expected 200, got {status}")
     info = json.loads(body.decode("utf-8"))
     expected_systems, non_empty_system, empty_system = _validate_cartridge_info(info)
+
+    # /wifi/networks
+    status, _, body = _request("GET", base, "/api/v1/wifi/networks")
+    if status != 200:
+        _fail(f"GET /api/v1/wifi/networks: expected 200, got {status}")
+    wifi_networks = json.loads(body.decode("utf-8"))
+    _validate_wifi_networks(wifi_networks)
 
     # /retropie
     status, _, body = _request("GET", base, "/api/v1/retropie")
@@ -217,6 +247,24 @@ def main() -> None:
     status = _request_raw_chunked_status(base, "/api/v1/flash", b"abc")
     if status != 411:
         _fail(f"POST /flash chunked: expected 411, got {status}")
+
+    # /wifi/join should trigger a temporary outage and then recover
+    join_payload = json.dumps({"ssid": "Bielefelder Luftbruecke", "password": "geheim"}).encode("utf-8")
+    try:
+        status, _, body = _request(
+            "POST",
+            base,
+            "/api/v1/wifi/join",
+            body=join_payload,
+            headers={"Content-Type": "application/json", "Content-Length": str(len(join_payload))},
+        )
+        if status >= 400:
+            _fail(f"POST /wifi/join: expected disconnect or non-error response, got {status} with body {body!r}")
+    except Exception:
+        pass
+
+    _wait_down(base, timeout_s=5.0)
+    _wait_up(base, timeout_s=25.0)
 
     print("ok")
 

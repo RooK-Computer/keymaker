@@ -39,10 +39,22 @@ type RetroPieStorage interface {
 	DeleteGame(ctx context.Context, systemName, gameName string) error
 }
 
+// VisibleWiFiNetworks lists the SSIDs currently known to the application.
+type VisibleWiFiNetworks interface {
+	ListVisibleWiFiNetworks(ctx context.Context) ([]string, error)
+}
+
+// WiFiJoiner requests that the device switch to another WiFi network.
+type WiFiJoiner interface {
+	RequestWiFiJoin(ctx context.Context, ssid, password string) error
+}
+
 type APIV1Deps struct {
-	Cartridge CartridgeInfoStore
-	Mounter   CartridgeMounter
-	RetroPie  RetroPieStorage
+	Cartridge           CartridgeInfoStore
+	Mounter             CartridgeMounter
+	RetroPie            RetroPieStorage
+	VisibleWiFiNetworks VisibleWiFiNetworks
+	WiFiJoiner          WiFiJoiner
 }
 
 func (d APIV1Deps) withDefaults() APIV1Deps {
@@ -55,6 +67,12 @@ func (d APIV1Deps) withDefaults() APIV1Deps {
 	}
 	if out.RetroPie == nil {
 		out.RetroPie = NoopRetroPieStorage{Err: errors.New("retropie storage not configured")}
+	}
+	if out.VisibleWiFiNetworks == nil {
+		out.VisibleWiFiNetworks = NoopVisibleWiFiNetworks{Err: errors.New("visible wifi networks not configured")}
+	}
+	if out.WiFiJoiner == nil {
+		out.WiFiJoiner = NoopWiFiJoiner{Err: errors.New("wifi join not configured")}
 	}
 	return out
 }
@@ -91,4 +109,22 @@ func (s NoopRetroPieStorage) err() error {
 		return s.Err
 	}
 	return errors.New("retropie storage not configured")
+}
+
+type NoopVisibleWiFiNetworks struct{ Err error }
+
+func (s NoopVisibleWiFiNetworks) ListVisibleWiFiNetworks(context.Context) ([]string, error) {
+	if s.Err != nil {
+		return nil, s.Err
+	}
+	return nil, errors.New("visible wifi networks not configured")
+}
+
+type NoopWiFiJoiner struct{ Err error }
+
+func (j NoopWiFiJoiner) RequestWiFiJoin(context.Context, string, string) error {
+	if j.Err != nil {
+		return j.Err
+	}
+	return errors.New("wifi join not configured")
 }

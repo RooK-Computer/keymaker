@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +36,10 @@ type SimControl struct {
 		mu sync.RWMutex
 		v  SimFaults
 	}
+	apiOutage struct {
+		mu    sync.RWMutex
+		until time.Time
+	}
 
 	reinsertSeq int64
 }
@@ -55,9 +61,11 @@ func NewSimControl(processCtx context.Context, root, startupScenario string, inf
 
 func (c *SimControl) Deps() web.APIV1Deps {
 	return web.APIV1Deps{
-		Cartridge: c.info,
-		Mounter:   SimCartridgeMounter{Control: c},
-		RetroPie:  web.FileSystemRetroPieStorage{RomsRoot: filepath.Join(c.root, "home/pi/RetroPie/roms")},
+		Cartridge:           c.info,
+		Mounter:             SimCartridgeMounter{Control: c},
+		RetroPie:            web.FileSystemRetroPieStorage{RomsRoot: filepath.Join(c.root, "home/pi/RetroPie/roms")},
+		VisibleWiFiNetworks: c,
+		WiFiJoiner:          c,
 	}
 }
 
@@ -89,6 +97,35 @@ func (c *SimControl) SetFaults(v SimFaults) {
 	c.faults.mu.Lock()
 	c.faults.v = v
 	c.faults.mu.Unlock()
+}
+
+func (c *SimControl) ListVisibleWiFiNetworks(context.Context) ([]string, error) {
+	return []string{
+		"Bielefelder Luftbruecke",
+		"Koeln Ist Ein WLAN",
+		"Das Internet Ist Neuland",
+	}, nil
+}
+
+func (c *SimControl) RequestWiFiJoin(context.Context, string, string) error {
+	c.beginAPIOutage(15 * time.Second)
+	return nil
+}
+
+func (c *SimControl) beginAPIOutage(duration time.Duration) {
+	if duration <= 0 {
+		return
+	}
+	c.apiOutage.mu.Lock()
+	c.apiOutage.until = time.Now().Add(duration)
+	c.apiOutage.mu.Unlock()
+}
+
+func (c *SimControl) apiOutageActive() bool {
+	c.apiOutage.mu.RLock()
+	until := c.apiOutage.until
+	c.apiOutage.mu.RUnlock()
+	return time.Now().Before(until)
 }
 
 func (c *SimControl) Eject(reqCtx context.Context) error {
@@ -214,6 +251,53 @@ func registerSimEndpoints(handler http.Handler, control *SimControl) {
 		return
 	}
 
+	apiMux := http.NewServeMux()
+	web.RegisterAPIV1(apiMux, web.APIV1Config{
+		Handlers: web.APIV1Handlers{EjectFunc: control.Eject, FlashFunc: control.Flash},
+		Deps:     control.Deps(),
+	})
+
+	outageAwareAPI := func(pattern string) {
+		mux.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if control.apiOutageActive() {
+				closeSimulatorConnection(w)
+				return
+			}
+			apiMux.ServeHTTP(w, r)
+		}))
+	}
+
+	for _, pattern := range []string{
+		"/api/v1/cartridgeinfo",
+		"/api/v1/retropie",
+		"/api/v1/retropie/",
+		"/api/v1/eject",
+		"/api/v1/flash",
+		"/api/v1/wifi/networks",
+	} {
+		outageAwareAPI(pattern)
+	}
+
+	mux.Handle("/api/v1/wifi/join", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if control.apiOutageActive() {
+			closeSimulatorConnection(w)
+			return
+		}
+
+		recorder := httptest.NewRecorder()
+		apiMux.ServeHTTP(recorder, cloneRequestBody(r))
+
+		response := recorder.Result()
+		defer func() { _ = response.Body.Close() }()
+
+		if response.StatusCode != http.StatusAccepted {
+			copyRecordedResponse(w, response)
+			return
+		}
+
+		closeSimulatorConnection(w)
+	}))
+
 	mux.HandleFunc("/sim/reset", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeSimError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -283,4 +367,45 @@ func writeSimJSON(w http.ResponseWriter, status int, v any) {
 
 func writeSimError(w http.ResponseWriter, status int, message string) {
 	writeSimJSON(w, status, map[string]any{"error": message})
+}
+
+func cloneRequestBody(r *http.Request) *http.Request {
+	if r.Body == nil {
+		return r.Clone(r.Context())
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		body = nil
+	}
+	_ = r.Body.Close()
+
+	cloned := r.Clone(r.Context())
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	cloned.Body = io.NopCloser(bytes.NewReader(body))
+	cloned.ContentLength = int64(len(body))
+	return cloned
+}
+
+func copyRecordedResponse(w http.ResponseWriter, response *http.Response) {
+	for headerName, values := range response.Header {
+		for _, value := range values {
+			w.Header().Add(headerName, value)
+		}
+	}
+	w.WriteHeader(response.StatusCode)
+	_, _ = io.Copy(w, response.Body)
+}
+
+func closeSimulatorConnection(w http.ResponseWriter) {
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "simulated disconnect", http.StatusServiceUnavailable)
+		return
+	}
+	conn, _, err := hijacker.Hijack()
+	if err != nil {
+		http.Error(w, "simulated disconnect", http.StatusServiceUnavailable)
+		return
+	}
+	_ = conn.Close()
 }

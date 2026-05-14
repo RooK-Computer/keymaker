@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -21,9 +22,11 @@ func NewDeviceAPIV1Deps(logger sysLogger) APIV1Deps {
 		logger = noopSysLogger{}
 	}
 	return APIV1Deps{
-		Cartridge: cartridge,
-		Mounter:   DeviceCartridgeMounter{Cartridge: cartridge, Logger: logger},
-		RetroPie:  FileSystemRetroPieStorage{RomsRoot: deviceRetroPieRomsRoot},
+		Cartridge:           cartridge,
+		Mounter:             DeviceCartridgeMounter{Cartridge: cartridge, Logger: logger},
+		RetroPie:            FileSystemRetroPieStorage{RomsRoot: deviceRetroPieRomsRoot},
+		VisibleWiFiNetworks: NoopVisibleWiFiNetworks{Err: errors.New("visible wifi networks not configured")},
+		WiFiJoiner:          NoopWiFiJoiner{Err: errors.New("wifi join not configured")},
 	}
 }
 
